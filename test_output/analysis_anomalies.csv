@@ -1,9 +1,0 @@
-Transaction Anomalies
-Date,Account,Description,Amount,Reason
-2024-01-12,Chase Checking ****1234,TRANSFER TO SAVINGS,-500.00,Fee or charge detected
-2024-01-22,Chase Checking ****1234,ATM WITHDRAWAL,-200.00,Cash advance detected
-2024-01-25,Chase Checking ****1234,FEE MONTHLY MAINTENANCE,-12.00,Fee or charge detected
-2024-02-25,Chase Checking ****1234,LARGE PURCHASE ELECTRONICS,-6500.00,"Large transaction: $6,500.00"
-
-Date Gap Anomalies
-Account,Start Date,End Date,Gap (Days),Severity

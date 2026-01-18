@@ -1,0 +1,57 @@
+# Virtual environments
+venv/
+.venv/
+env/
+.env/
+
+# Python build artifacts
+*.egg-info/
+*.egg
+dist/
+build/
+__pycache__/
+*.py[cod]
+*$py.class
+.eggs/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Claude Code
+.claude/
+
+# Application logs
+*.log
+
+# User config files (use *_sample.yaml as templates)
+config/accounts.yaml
+config/settings.yaml
+config/categories.yaml
+config/manual_categories.yaml
+
+# Test output
+test_output/
+
+# User financial data - NEVER commit actual statements
+2026/
+statements/
+bank_statements/
+downloads/
+
+# macOS
+.DS_Store
+
+# Environment variables
+.env
+.env.local
