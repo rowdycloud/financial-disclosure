@@ -1,0 +1,63 @@
+# Manual Category Overrides
+# Copy this file to manual_categories.yaml and add your specific overrides.
+#
+# Usage: cp manual_categories_sample.yaml manual_categories.yaml
+#
+# Manual overrides take precedence over automatic categorization rules.
+# Use this for transactions that are incorrectly categorized by rules
+# or for one-off transactions that don't fit any rule.
+
+# Override matching logic:
+# A transaction matches when ALL specified criteria match:
+# - date: exact match (required)
+# - amount: exact match (required)
+# - keywords: at least one keyword matches description (case-insensitive substring)
+#
+# If multiple overrides match, highest priority wins; ties resolved by list order.
+
+overrides:
+  # Example: Reclassify an ambiguous Amazon purchase
+  # - date: "2024-03-15"
+  #   amount: -52.43
+  #   keywords: ["AMAZON"]
+  #   category: "groceries_alcohol"
+  #   subcategory: null
+  #   priority: 100
+
+  # Example: Mark a one-time large purchase
+  # - date: "2024-06-20"
+  #   amount: -1500.00
+  #   keywords: ["BEST BUY"]
+  #   category: "home_goods"
+  #   priority: 100
+
+  # Example: Reclassify a transfer that was incorrectly categorized
+  # - date: "2024-01-05"
+  #   amount: -500.00
+  #   keywords: ["VENMO", "JOHN DOE"]
+  #   category: "dining"  # Actually split a restaurant bill
+  #   priority: 100
+
+  # Example: Business expense that looks like personal
+  # - date: "2024-07-12"
+  #   amount: -89.99
+  #   keywords: ["OFFICE DEPOT"]
+  #   category: "misc_expense"
+  #   priority: 100
+
+# Tips for using manual overrides:
+#
+# 1. Be as specific as possible with keywords to avoid matching
+#    multiple transactions unintentionally.
+#
+# 2. Use the exact amount including sign (-negative for expenses).
+#
+# 3. Higher priority values are evaluated first. Use 100+ for
+#    critical overrides that must take precedence.
+#
+# 4. After running the tool, check the "Uncategorized" flag in
+#    the output to find transactions that may need manual overrides.
+#
+# 5. You can add multiple keywords to match a specific transaction:
+#    keywords: ["AMAZON", "WHOLE FOODS", "PRIME"]
+#    This matches if ANY of the keywords appear in the description.

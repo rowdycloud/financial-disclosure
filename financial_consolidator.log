@@ -1,0 +1,66 @@
+2026-01-15 01:28:19 - financial_consolidator.financial_consolidator.parsers.csv_parser - WARNING - Error parsing row 1 in sample_bank_statement.csv: '>=' not supported between instances of 'tuple' and 'int'
+2026-01-15 01:28:19 - financial_consolidator.financial_consolidator.parsers.csv_parser - WARNING - Error parsing row 2 in sample_bank_statement.csv: '>=' not supported between instances of 'tuple' and 'int'
+2026-01-15 01:28:19 - financial_consolidator.financial_consolidator.parsers.csv_parser - WARNING - Error parsing row 3 in sample_bank_statement.csv: '>=' not supported between instances of 'tuple' and 'int'
+2026-01-15 01:28:19 - financial_consolidator.financial_consolidator.parsers.csv_parser - WARNING - Error parsing row 4 in sample_bank_statement.csv: '>=' not supported between instances of 'tuple' and 'int'
+2026-01-15 01:28:19 - financial_consolidator.financial_consolidator.parsers.csv_parser - WARNING - Error parsing row 5 in sample_bank_statement.csv: '>=' not supported between instances of 'tuple' and 'int'
+2026-01-15 01:28:19 - financial_consolidator.financial_consolidator.parsers.csv_parser - WARNING - Error parsing row 6 in sample_bank_statement.csv: '>=' not supported between instances of 'tuple' and 'int'
+2026-01-15 01:28:19 - financial_consolidator.financial_consolidator.parsers.csv_parser - WARNING - Error parsing row 7 in sample_bank_statement.csv: '>=' not supported between instances of 'tuple' and 'int'
+2026-01-15 01:28:19 - financial_consolidator.financial_consolidator.parsers.csv_parser - WARNING - Error parsing row 8 in sample_bank_statement.csv: '>=' not supported between instances of 'tuple' and 'int'
+2026-01-15 01:28:19 - financial_consolidator.financial_consolidator.parsers.csv_parser - WARNING - Error parsing row 9 in sample_bank_statement.csv: '>=' not supported between instances of 'tuple' and 'int'
+2026-01-15 01:28:19 - financial_consolidator.financial_consolidator.parsers.csv_parser - WARNING - Error parsing row 10 in sample_bank_statement.csv: '>=' not supported between instances of 'tuple' and 'int'
+2026-01-15 01:28:19 - financial_consolidator.financial_consolidator.parsers.csv_parser - WARNING - Error parsing row 11 in sample_bank_statement.csv: '>=' not supported between instances of 'tuple' and 'int'
+2026-01-15 01:28:19 - financial_consolidator.financial_consolidator.parsers.csv_parser - WARNING - Error parsing row 12 in sample_bank_statement.csv: '>=' not supported between instances of 'tuple' and 'int'
+2026-01-15 01:28:19 - financial_consolidator.financial_consolidator.parsers.csv_parser - WARNING - Error parsing row 13 in sample_bank_statement.csv: '>=' not supported between instances of 'tuple' and 'int'
+2026-01-15 01:28:19 - financial_consolidator.financial_consolidator.parsers.csv_parser - WARNING - Error parsing row 14 in sample_bank_statement.csv: '>=' not supported between instances of 'tuple' and 'int'
+2026-01-15 01:28:19 - financial_consolidator.financial_consolidator.parsers.csv_parser - WARNING - Error parsing row 15 in sample_bank_statement.csv: '>=' not supported between instances of 'tuple' and 'int'
+2026-01-15 01:28:19 - financial_consolidator.financial_consolidator.parsers.csv_parser - WARNING - Error parsing row 16 in sample_bank_statement.csv: '>=' not supported between instances of 'tuple' and 'int'
+2026-01-15 01:28:19 - financial_consolidator.financial_consolidator.parsers.csv_parser - WARNING - Error parsing row 17 in sample_bank_statement.csv: '>=' not supported between instances of 'tuple' and 'int'
+2026-01-15 01:28:19 - financial_consolidator.financial_consolidator.parsers.csv_parser - WARNING - Error parsing row 18 in sample_bank_statement.csv: '>=' not supported between instances of 'tuple' and 'int'
+2026-01-15 01:28:19 - financial_consolidator.financial_consolidator.parsers.csv_parser - WARNING - Error parsing row 19 in sample_bank_statement.csv: '>=' not supported between instances of 'tuple' and 'int'
+2026-01-15 01:31:51 - financial_consolidator.financial_consolidator.cli - ERROR - sample_bank_statement.csv: Unexpected error: Transaction.__init__() missing 1 required positional argument: 'transaction_type'
+2026-01-15 01:32:11 - financial_consolidator.financial_consolidator.config - INFO - Loaded settings from config/settings.yaml
+2026-01-15 01:32:11 - financial_consolidator.financial_consolidator.config - INFO - Loaded 5 accounts from config/accounts.yaml
+2026-01-15 01:32:11 - financial_consolidator.financial_consolidator.config - INFO - Loaded 40 categories and 25 rules from config/categories.yaml
+2026-01-15 01:32:11 - financial_consolidator.financial_consolidator.parsers.detector - INFO - Discovered 1 potential files in test_data
+2026-01-15 01:32:11 - financial_consolidator.financial_consolidator.parsers.detector - DEBUG - File sample_bank_statement.csv matched by CSVParser
+2026-01-15 01:32:11 - financial_consolidator.financial_consolidator.parsers.csv_parser - INFO - Parsing sample_bank_statement.csv as Bank of America format (delimiter=',')
+2026-01-15 01:32:11 - financial_consolidator.financial_consolidator.parsers.csv_parser - INFO - Parsed 19 transactions from sample_bank_statement.csv
+2026-01-15 01:32:11 - financial_consolidator.financial_consolidator.cli - ERROR - sample_bank_statement.csv: Unexpected error: Transaction.__init__() missing 1 required positional argument: 'transaction_type'
+2026-01-16 12:42:12 - financial_consolidator.financial_consolidator.config - INFO - Loaded settings from config/settings.yaml
+2026-01-16 12:42:12 - financial_consolidator.financial_consolidator.config - INFO - Loaded 5 accounts from config/accounts.yaml
+2026-01-16 12:42:12 - financial_consolidator.financial_consolidator.config - INFO - Loaded 40 categories and 25 rules from config/categories.yaml
+2026-01-16 12:42:14 - financial_consolidator.financial_consolidator.parsers.detector - INFO - Discovered 1 potential files in test_data
+2026-01-16 12:42:14 - financial_consolidator.financial_consolidator.parsers.detector - DEBUG - File sample_bank_statement.csv matched by CSVParser
+2026-01-16 12:42:14 - financial_consolidator.financial_consolidator.parsers.csv_parser - INFO - Parsing sample_bank_statement.csv as Bank of America format (delimiter=',')
+2026-01-16 12:42:14 - financial_consolidator.financial_consolidator.parsers.csv_parser - INFO - Parsed 19 transactions from sample_bank_statement.csv
+2026-01-16 12:42:14 - financial_consolidator.financial_consolidator.processing.normalizer - INFO - Normalized 19/19 transactions for account Chase Checking ****1234
+2026-01-16 12:42:14 - financial_consolidator.financial_consolidator.processing.categorizer - DEBUG - Rule rule_payroll matched for PAYROLL DIRECT DEPOSIT: income_salary
+2026-01-16 12:42:14 - financial_consolidator.financial_consolidator.processing.categorizer - DEBUG - Rule rule_groceries matched for WALMART GROCERY: groceries_alcohol
+2026-01-16 12:42:14 - financial_consolidator.financial_consolidator.processing.categorizer - DEBUG - Rule rule_gas_station matched for SHELL GAS STATION: transportation_gas
+2026-01-16 12:42:14 - financial_consolidator.financial_consolidator.processing.categorizer - DEBUG - Rule rule_restaurants matched for UBER EATS: dining
+2026-01-16 12:42:14 - financial_consolidator.financial_consolidator.processing.categorizer - DEBUG - Rule rule_transfer_internal matched for TRANSFER TO SAVINGS: transfers_internal
+2026-01-16 12:42:14 - financial_consolidator.financial_consolidator.processing.categorizer - DEBUG - Rule rule_electric matched for ELECTRICITY BILL: utilities_electric
+2026-01-16 12:42:14 - financial_consolidator.financial_consolidator.processing.categorizer - DEBUG - Rule rule_subscriptions matched for AMAZON PRIME: subscriptions
+2026-01-16 12:42:14 - financial_consolidator.financial_consolidator.processing.categorizer - DEBUG - Rule rule_restaurants matched for RESTAURANT THE CHEESECAKE FACTORY: dining
+2026-01-16 12:42:14 - financial_consolidator.financial_consolidator.processing.categorizer - DEBUG - Rule rule_fees matched for FEE MONTHLY MAINTENANCE: fees
+2026-01-16 12:42:14 - financial_consolidator.financial_consolidator.processing.categorizer - DEBUG - Rule rule_interest matched for INTEREST PAYMENT: income_interest
+2026-01-16 12:42:14 - financial_consolidator.financial_consolidator.processing.categorizer - DEBUG - Rule rule_payroll matched for PAYROLL DIRECT DEPOSIT: income_salary
+2026-01-16 12:42:14 - financial_consolidator.financial_consolidator.processing.categorizer - DEBUG - Rule rule_groceries matched for WHOLE FOODS MARKET: groceries_alcohol
+2026-01-16 12:42:14 - financial_consolidator.financial_consolidator.processing.categorizer - DEBUG - Rule rule_gas_station matched for CHEVRON GAS: transportation_gas
+2026-01-16 12:42:14 - financial_consolidator.financial_consolidator.processing.categorizer - DEBUG - Rule rule_restaurants matched for DOORDASH: dining
+2026-01-16 12:42:14 - financial_consolidator.financial_consolidator.processing.categorizer - DEBUG - Rule rule_rent matched for RENT PAYMENT: housing_rent
+2026-01-16 12:42:14 - financial_consolidator.financial_consolidator.processing.categorizer - DEBUG - Rule rule_subscriptions matched for NETFLIX SUBSCRIPTION: subscriptions
+2026-01-16 12:42:14 - financial_consolidator.financial_consolidator.processing.categorizer - DEBUG - Rule rule_groceries matched for TARGET GROCERIES: groceries_alcohol
+2026-01-16 12:42:14 - financial_consolidator.financial_consolidator.processing.categorizer - INFO - Categorized 17 transactions, 2 uncategorized
+2026-01-16 12:42:14 - financial_consolidator.financial_consolidator.processing.deduplicator - INFO - Found 0 duplicate transactions
+2026-01-16 12:42:14 - financial_consolidator.financial_consolidator.processing.balance_calculator - DEBUG - Calculated balances for chase_checking: 19 transactions, opening=0, closing=-2805.38
+2026-01-16 12:42:14 - financial_consolidator.financial_consolidator.processing.anomaly_detector - INFO - Detected 0 date gap anomalies
+2026-01-16 12:42:14 - financial_consolidator.financial_consolidator.processing.anomaly_detector - INFO - Detected 4 transaction anomalies
+2026-01-16 12:42:14 - financial_consolidator.financial_consolidator.output.excel_writer - INFO - Writing Excel workbook to test_output/analysis.xlsx
+2026-01-16 12:42:14 - financial_consolidator.financial_consolidator.output.excel_writer - INFO - Excel workbook saved: test_output/analysis.xlsx
+2026-01-16 12:42:14 - financial_consolidator.financial_consolidator.output.csv_exporter - INFO - Exported P&L Summary to test_output/analysis_pl_summary.csv
+2026-01-16 12:42:14 - financial_consolidator.financial_consolidator.output.csv_exporter - INFO - Exported 19 transactions to test_output/analysis_all_transactions.csv
+2026-01-16 12:42:14 - financial_consolidator.financial_consolidator.output.csv_exporter - INFO - Exported category analysis to test_output/analysis_category_analysis.csv
+2026-01-16 12:42:14 - financial_consolidator.financial_consolidator.output.csv_exporter - INFO - Exported anomalies to test_output/analysis_anomalies.csv
+2026-01-16 12:42:14 - financial_consolidator.financial_consolidator.output.csv_exporter - DEBUG - Exported account chase_checking to test_output/analysis_account_chase_checking.csv
+2026-01-16 12:42:14 - financial_consolidator.financial_consolidator.output.csv_exporter - INFO - Exported 5 CSV files

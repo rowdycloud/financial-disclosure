@@ -1,0 +1,561 @@
+# Category Definitions and Categorization Rules
+# Copy this file to categories.yaml and customize for your needs.
+#
+# Usage: cp categories_sample.yaml categories.yaml
+
+# Category definitions
+# Each category has:
+#   id: Unique identifier (used in rules and outputs)
+#   name: Human-readable display name
+#   type: income, expense, or transfer (affects P&L placement)
+#   parent: Optional parent category ID (for subcategories)
+#   display_order: Order in output reports
+#   color: Optional hex color for Excel formatting
+
+categories:
+  # =====================
+  # INCOME CATEGORIES
+  # =====================
+  - id: income_salary
+    name: "Salary"
+    type: income
+    display_order: 1
+    color: "#4CAF50"
+
+  - id: income_bonus
+    name: "Bonus"
+    type: income
+    display_order: 2
+
+  - id: income_interest
+    name: "Interest & Dividends"
+    type: income
+    display_order: 3
+
+  - id: income_refunds
+    name: "Refunds & Rebates"
+    type: income
+    display_order: 4
+
+  - id: income_other
+    name: "Other Income"
+    type: income
+    display_order: 5
+
+  # =====================
+  # EXPENSE CATEGORIES
+  # =====================
+  - id: housing
+    name: "Housing"
+    type: expense
+    display_order: 10
+    color: "#2196F3"
+
+  - id: housing_rent
+    name: "Rent/Mortgage"
+    type: expense
+    parent: housing
+    display_order: 11
+
+  - id: housing_utilities
+    name: "Utilities"
+    type: expense
+    parent: housing
+    display_order: 12
+
+  - id: housing_insurance
+    name: "Home Insurance"
+    type: expense
+    parent: housing
+    display_order: 13
+
+  - id: transportation
+    name: "Transportation"
+    type: expense
+    display_order: 20
+    color: "#FF9800"
+
+  - id: transportation_gas
+    name: "Gas & Fuel"
+    type: expense
+    parent: transportation
+    display_order: 21
+
+  - id: transportation_auto
+    name: "Auto Payment"
+    type: expense
+    parent: transportation
+    display_order: 22
+
+  - id: transportation_insurance
+    name: "Auto Insurance"
+    type: expense
+    parent: transportation
+    display_order: 23
+
+  - id: transportation_rideshare
+    name: "Rideshare"
+    type: expense
+    parent: transportation
+    display_order: 24
+
+  - id: groceries_alcohol
+    name: "Groceries and Alcohol"
+    type: expense
+    display_order: 30
+    color: "#8BC34A"
+
+  - id: dining
+    name: "Dining"
+    type: expense
+    display_order: 31
+    color: "#E91E63"
+
+  - id: utilities
+    name: "Utilities"
+    type: expense
+    display_order: 40
+    color: "#00BCD4"
+
+  - id: utilities_electric
+    name: "Electric"
+    type: expense
+    parent: utilities
+    display_order: 41
+
+  - id: utilities_gas
+    name: "Gas"
+    type: expense
+    parent: utilities
+    display_order: 42
+
+  - id: utilities_water
+    name: "Water"
+    type: expense
+    parent: utilities
+    display_order: 43
+
+  - id: utilities_internet
+    name: "Internet"
+    type: expense
+    parent: utilities
+    display_order: 44
+
+  - id: utilities_phone
+    name: "Phone"
+    type: expense
+    parent: utilities
+    display_order: 45
+
+  - id: debt_service
+    name: "Debt Service"
+    type: expense
+    display_order: 50
+    color: "#F44336"
+
+  - id: cash_advances
+    name: "Cash Advances"
+    type: expense
+    display_order: 51
+    color: "#D32F2F"
+
+  - id: investments
+    name: "Investments"
+    type: expense
+    display_order: 60
+    color: "#673AB7"
+
+  - id: personal_care
+    name: "Personal Care"
+    type: expense
+    display_order: 70
+
+  - id: healthcare
+    name: "Healthcare"
+    type: expense
+    display_order: 71
+
+  - id: home_improvement
+    name: "Home Improvement"
+    type: expense
+    display_order: 80
+
+  - id: home_goods
+    name: "Home Goods and Maintenance"
+    type: expense
+    display_order: 81
+
+  - id: childcare
+    name: "Childcare"
+    type: expense
+    display_order: 90
+    color: "#FF5722"
+
+  - id: education
+    name: "Education"
+    type: expense
+    display_order: 91
+
+  - id: entertainment
+    name: "Entertainment"
+    type: expense
+    display_order: 100
+
+  - id: subscriptions
+    name: "Subscriptions"
+    type: expense
+    display_order: 101
+
+  - id: shopping
+    name: "Shopping"
+    type: expense
+    display_order: 110
+
+  - id: travel
+    name: "Travel"
+    type: expense
+    display_order: 120
+
+  - id: fees
+    name: "Fees & Charges"
+    type: expense
+    display_order: 130
+    color: "#795548"
+
+  - id: misc_expense
+    name: "Miscellaneous"
+    type: expense
+    display_order: 200
+
+  # =====================
+  # TRANSFER CATEGORIES
+  # (Excluded from P&L totals)
+  # =====================
+  - id: transfers
+    name: "Transfers"
+    type: transfer
+    display_order: 300
+
+  - id: transfers_internal
+    name: "Internal Transfer"
+    type: transfer
+    parent: transfers
+    display_order: 301
+
+  - id: transfers_external
+    name: "External Transfer"
+    type: transfer
+    parent: transfers
+    display_order: 302
+
+# =====================
+# CATEGORIZATION RULES
+# =====================
+# Rules are evaluated in priority order (highest first).
+# First matching rule wins.
+#
+# Matching criteria:
+#   keywords: Case-insensitive substring match on description
+#   regex_patterns: Regex patterns to match description
+#   amount_min/amount_max: Filter by transaction amount
+#   account_ids: Only apply to specific accounts
+
+rules:
+  # INCOME RULES (priority 100+)
+  - id: rule_payroll
+    category: income_salary
+    keywords:
+      - "PAYROLL"
+      - "DIRECT DEPOSIT"
+      - "SALARY"
+      - "WAGES"
+      - "EMPLOYER"
+    priority: 100
+
+  - id: rule_bonus
+    category: income_bonus
+    keywords:
+      - "BONUS"
+      - "INCENTIVE"
+    priority: 99
+
+  - id: rule_interest
+    category: income_interest
+    keywords:
+      - "INTEREST PAYMENT"
+      - "DIVIDEND"
+      - "APY"
+      - "INTEREST EARNED"
+    priority: 98
+
+  - id: rule_refund
+    category: income_refunds
+    keywords:
+      - "REFUND"
+      - "REBATE"
+      - "CASHBACK"
+      - "CREDIT ADJUSTMENT"
+    priority: 97
+
+  # HOUSING RULES (priority 90+)
+  - id: rule_rent
+    category: housing_rent
+    keywords:
+      - "RENT PAYMENT"
+      - "LANDLORD"
+      - "PROPERTY MGMT"
+      - "MORTGAGE"
+      - "HOME LOAN"
+    priority: 90
+
+  - id: rule_electric
+    category: utilities_electric
+    keywords:
+      - "ELECTRIC"
+      - "POWER COMPANY"
+      - "ENERGY"
+      - "PG&E"
+      - "CON EDISON"
+      - "DUKE ENERGY"
+    priority: 89
+
+  - id: rule_gas_utility
+    category: utilities_gas
+    keywords:
+      - "GAS COMPANY"
+      - "NATURAL GAS"
+      - "UTILITY GAS"
+    priority: 88
+
+  - id: rule_water
+    category: utilities_water
+    keywords:
+      - "WATER DEPT"
+      - "WATER UTILITY"
+      - "WATER BILL"
+    priority: 87
+
+  - id: rule_internet
+    category: utilities_internet
+    keywords:
+      - "COMCAST"
+      - "XFINITY"
+      - "SPECTRUM"
+      - "AT&T INTERNET"
+      - "VERIZON FIOS"
+      - "COX COMMUNICATIONS"
+    priority: 86
+
+  - id: rule_phone
+    category: utilities_phone
+    keywords:
+      - "VERIZON WIRELESS"
+      - "T-MOBILE"
+      - "AT&T WIRELESS"
+      - "SPRINT"
+      - "CELL PHONE"
+    priority: 85
+
+  # FOOD RULES (priority 80+)
+  - id: rule_groceries
+    category: groceries_alcohol
+    keywords:
+      - "WALMART"
+      - "TARGET"
+      - "COSTCO"
+      - "KROGER"
+      - "SAFEWAY"
+      - "WHOLE FOODS"
+      - "TRADER JOE"
+      - "ALDI"
+      - "PUBLIX"
+      - "HEB"
+      - "LIQUOR"
+      - "WINE"
+      - "BEER"
+      - "TOTAL WINE"
+      - "BEVMO"
+      - "GROCERY"
+    priority: 80
+
+  - id: rule_restaurants
+    category: dining
+    keywords:
+      - "RESTAURANT"
+      - "DOORDASH"
+      - "UBER EATS"
+      - "GRUBHUB"
+      - "POSTMATES"
+      - "MCDONALD"
+      - "STARBUCKS"
+      - "CHIPOTLE"
+      - "TACO BELL"
+      - "WENDY"
+      - "CHICK-FIL-A"
+      - "PANERA"
+      - "SUBWAY"
+      - "PIZZA"
+      - "DINER"
+      - "CAFE"
+      - "COFFEE"
+    priority: 79
+
+  # TRANSPORTATION RULES (priority 70+)
+  - id: rule_gas_station
+    category: transportation_gas
+    keywords:
+      - "SHELL"
+      - "CHEVRON"
+      - "EXXON"
+      - "BP"
+      - "GAS STATION"
+      - "FUEL"
+      - "76 GAS"
+      - "ARCO"
+      - "MOBIL"
+      - "SPEEDWAY"
+      - "WAWA"
+    priority: 70
+
+  - id: rule_rideshare
+    category: transportation_rideshare
+    keywords:
+      - "UBER TRIP"
+      - "LYFT"
+    regex_patterns:
+      - "^UBER(?!.*EATS)"  # Uber but not Uber Eats
+    priority: 69
+
+  - id: rule_auto_payment
+    category: transportation_auto
+    keywords:
+      - "AUTO LOAN"
+      - "CAR PAYMENT"
+      - "TOYOTA FINANCIAL"
+      - "HONDA FINANCIAL"
+      - "FORD CREDIT"
+    priority: 68
+
+  - id: rule_auto_insurance
+    category: transportation_insurance
+    keywords:
+      - "GEICO"
+      - "PROGRESSIVE"
+      - "STATE FARM"
+      - "ALLSTATE"
+      - "AUTO INSURANCE"
+      - "CAR INSURANCE"
+    priority: 67
+
+  # DEBT SERVICE RULES (priority 60+)
+  - id: rule_debt_payment
+    category: debt_service
+    keywords:
+      - "LOAN PAYMENT"
+      - "CREDIT CARD PAYMENT"
+      - "STUDENT LOAN"
+      - "NAVIENT"
+      - "NELNET"
+      - "SOFI"
+      - "MINIMUM PAYMENT"
+    priority: 60
+
+  - id: rule_cash_advance
+    category: cash_advances
+    keywords:
+      - "CASH ADVANCE"
+      - "CASH ADV"
+    priority: 59
+
+  # TRANSFER RULES (priority 50+)
+  - id: rule_transfer_internal
+    category: transfers_internal
+    keywords:
+      - "TRANSFER TO"
+      - "TRANSFER FROM"
+      - "ONLINE TRANSFER"
+      - "INTERNAL TRANSFER"
+      - "SAVE AS YOU GO"
+    priority: 50
+
+  - id: rule_transfer_external
+    category: transfers_external
+    keywords:
+      - "VENMO"
+      - "ZELLE"
+      - "PAYPAL"
+      - "CASH APP"
+      - "WIRE TRANSFER"
+      - "ACH TRANSFER"
+    priority: 49
+
+  # INVESTMENT RULES (priority 40+)
+  - id: rule_investment
+    category: investments
+    keywords:
+      - "FIDELITY"
+      - "VANGUARD"
+      - "SCHWAB"
+      - "E*TRADE"
+      - "ROBINHOOD"
+      - "INVESTMENT"
+      - "401K"
+      - "IRA CONTRIBUTION"
+    priority: 40
+
+  # FEE RULES (priority 30+)
+  - id: rule_fees
+    category: fees
+    keywords:
+      - "FEE"
+      - "CHARGE"
+      - "PENALTY"
+      - "OVERDRAFT"
+      - "NSF"
+      - "RETURNED ITEM"
+      - "LATE FEE"
+      - "ANNUAL FEE"
+      - "MONTHLY FEE"
+    priority: 30
+
+  # SUBSCRIPTION RULES (priority 20+)
+  - id: rule_subscriptions
+    category: subscriptions
+    keywords:
+      - "NETFLIX"
+      - "SPOTIFY"
+      - "HULU"
+      - "DISNEY+"
+      - "HBO MAX"
+      - "AMAZON PRIME"
+      - "APPLE MUSIC"
+      - "YOUTUBE PREMIUM"
+      - "SUBSCRIPTION"
+    priority: 20
+
+  # HEALTHCARE RULES
+  - id: rule_healthcare
+    category: healthcare
+    keywords:
+      - "PHARMACY"
+      - "CVS"
+      - "WALGREENS"
+      - "DOCTOR"
+      - "MEDICAL"
+      - "HOSPITAL"
+      - "DENTAL"
+      - "VISION"
+      - "HEALTH INSURANCE"
+    priority: 19
+
+  # CHILDCARE RULES
+  - id: rule_childcare
+    category: childcare
+    keywords:
+      - "DAYCARE"
+      - "CHILDCARE"
+      - "PRESCHOOL"
+      - "BABYSITTER"
+      - "NANNY"
+      - "KINDERCARE"
+    priority: 18

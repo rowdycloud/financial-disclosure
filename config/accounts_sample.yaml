@@ -1,0 +1,88 @@
+# Account Definitions and File Mappings
+# Copy this file to accounts.yaml and customize for your accounts.
+#
+# Usage: cp accounts_sample.yaml accounts.yaml
+#
+# The tool can also create accounts.yaml interactively when it encounters
+# unmapped files. Use --no-interactive to skip unmapped files instead.
+
+# File to account mappings
+# Map specific filenames to account IDs
+file_mappings:
+  # Example mappings:
+  # "chase_checking_2024.csv": "chase_checking"
+  # "amex_gold_jan2024.ofx": "amex_gold"
+  # "statement_jan2024.pdf": "bofa_checking"
+
+# Account definitions
+accounts:
+  # Example checking account
+  chase_checking:
+    name: "Chase Checking ****1234"
+    type: "checking"
+    institution: "Chase"
+    account_number_masked: "1234"
+    # Opening balance for running balance calculation (optional)
+    opening_balance: 0.00
+    opening_balance_date: "2024-01-01"
+    # Glob patterns to auto-match files (case-insensitive)
+    source_file_patterns:
+      - "*chase*checking*.csv"
+      - "*chase*checking*.ofx"
+    display_order: 1
+
+  # Example credit card
+  amex_gold:
+    name: "Amex Gold ****5678"
+    type: "credit_card"
+    institution: "American Express"
+    account_number_masked: "5678"
+    opening_balance: -2500.00
+    opening_balance_date: "2024-01-01"
+    source_file_patterns:
+      - "*amex*.csv"
+      - "*amex*.ofx"
+      - "*american_express*.csv"
+    display_order: 2
+
+  # Example savings account
+  ally_savings:
+    name: "Ally Savings ****9012"
+    type: "savings"
+    institution: "Ally Bank"
+    account_number_masked: "9012"
+    opening_balance: 10000.00
+    opening_balance_date: "2024-01-01"
+    source_file_patterns:
+      - "*ally*.csv"
+      - "*ally*.ofx"
+    display_order: 3
+
+  # Example investment account
+  fidelity_brokerage:
+    name: "Fidelity Brokerage ****3456"
+    type: "investment"
+    institution: "Fidelity"
+    account_number_masked: "3456"
+    source_file_patterns:
+      - "*fidelity*.csv"
+    display_order: 10
+
+  # Example crypto account
+  coinbase_wallet:
+    name: "Coinbase Wallet"
+    type: "crypto"
+    institution: "Coinbase"
+    source_file_patterns:
+      - "*coinbase*.csv"
+    display_order: 20
+
+# Account types supported:
+# - checking
+# - savings
+# - credit_card
+# - loan
+# - investment
+# - crypto
+# - cash
+# - other
