@@ -48,6 +48,9 @@ test_output/
 statements/
 bank_statements/
 downloads/
+analysis/
+analysis.xlsx
+analysis.csv
 
 # macOS
 .DS_Store
@@ -55,3 +58,4 @@ downloads/
 # Environment variables
 .env
 .env.local
+

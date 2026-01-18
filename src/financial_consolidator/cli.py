@@ -2,7 +2,7 @@
 
 import argparse
 import sys
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
 
@@ -30,10 +30,10 @@ def create_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s --input-dir ./downloads --output analysis.xlsx
-  %(prog)s -i ./downloads -o analysis.xlsx --start-date 2024-01-01
-  %(prog)s -i ./downloads -o analysis.xlsx --csv --config ./my_config/settings.yaml
-  %(prog)s -i ./downloads -o output.xlsx --no-interactive --strict
+  %(prog)s --input-dir ./downloads
+  %(prog)s -i ./downloads -o my_report.csv --xlsx
+  %(prog)s -i ./downloads -o report.xlsx --csv
+  %(prog)s -i ./downloads --start-date 2024-01-01 --no-interactive
         """,
     )
 
@@ -56,7 +56,7 @@ Examples:
         "-o", "--output",
         type=Path,
         default=None,
-        help="Output Excel file path (e.g., ./financial_analysis.xlsx)",
+        help="Output file path (default: analysis/analysis_YYYYMMDD_HHMMSS.csv)",
     )
 
     # Optional arguments
@@ -107,7 +107,13 @@ Examples:
     parser.add_argument(
         "--csv",
         action="store_true",
-        help="Also export CSV files (one per sheet) for Google Sheets import",
+        help="Also export CSV files (when using .xlsx output)",
+    )
+
+    parser.add_argument(
+        "--xlsx",
+        action="store_true",
+        help="Also export Excel workbook (when using CSV output)",
     )
 
     # Processing options
@@ -168,6 +174,16 @@ def get_log_level(verbosity: int) -> str:
         return "INFO"
     else:
         return "WARNING"
+
+
+def generate_default_output_path() -> Path:
+    """Generate default output path with timestamp.
+
+    Returns:
+        Path with format analysis/analysis_YYYYMMDD_HHMMSS.csv
+    """
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return Path(f"analysis/analysis_{timestamp}.csv")
 
 
 def prompt_for_account(filename: str, config: Config) -> Optional[Account]:
@@ -413,9 +429,8 @@ def main() -> int:
         return 1
 
     if args.output is None:
-        console.print("[red]Error: --output is required[/red]")
-        parser.print_usage()
-        return 1
+        args.output = generate_default_output_path()
+        console.print(f"[dim]Using default output: {args.output}[/dim]")
 
     # Validate input directory
     if not args.input_dir.exists():
@@ -493,26 +508,32 @@ def main() -> int:
         console.print("[yellow]No supported files found in input directory.[/yellow]")
         return 0
 
-    # Parse files
-    with create_progress() as progress:
-        task = progress.add_task("Parsing files...", total=total_files)
+    # Phase 1: Resolve account mappings (interactive prompts happen here, before progress bar)
+    file_account_map: dict[Path, Account] = {}
+    for file_path in files:
+        account = config.get_account_for_file(file_path.name)
 
-        for file_path in files:
-            progress.update(task, advance=1, description=f"Parsing {file_path.name}...")
-
-            # Get account mapping
-            account = config.get_account_for_file(file_path.name)
-
-            if account is None:
-                if args.no_interactive:
-                    skipped_files.append(f"{file_path.name}: No account mapping")
+        if account is None:
+            if args.no_interactive:
+                skipped_files.append(f"{file_path.name}: No account mapping")
+                continue
+            else:
+                # Interactive mode: prompt for account
+                account = prompt_for_account(file_path.name, config)
+                if account is None:
+                    skipped_files.append(f"{file_path.name}: Skipped by user")
                     continue
-                else:
-                    # Interactive mode: prompt for account
-                    account = prompt_for_account(file_path.name, config)
-                    if account is None:
-                        skipped_files.append(f"{file_path.name}: Skipped by user")
-                        continue
+
+        file_account_map[file_path] = account
+
+    # Phase 2: Parse files (progress bar, no prompts)
+    files_to_parse = list(file_account_map.keys())
+    with create_progress() as progress:
+        task = progress.add_task("Parsing files...", total=len(files_to_parse))
+
+        for file_path in files_to_parse:
+            progress.update(task, advance=1, description=f"Parsing {file_path.name}...")
+            account = file_account_map[file_path]
 
             # Parse file
             try:
@@ -566,23 +587,47 @@ def main() -> int:
 
     # Generate output (unless dry run)
     if not args.dry_run:
-        with create_progress() as progress:
-            # Write Excel
-            task = progress.add_task("Writing Excel output...", total=None)
-            excel_writer = ExcelWriter(config)
-            excel_writer.write(args.output, all_transactions, date_gaps)
-            progress.update(task, completed=True)
+        # Determine output format from extension
+        output_ext = args.output.suffix.lower()
+        is_csv_output = output_ext == ".csv"
 
-            # Write CSV if requested
-            if args.csv:
+        with create_progress() as progress:
+            if is_csv_output:
+                # CSV is primary output
                 task = progress.add_task("Writing CSV files...", total=None)
                 csv_exporter = CSVExporter(config)
                 csv_exporter.export(args.output, all_transactions, date_gaps)
                 progress.update(task, completed=True)
 
-        console.print(f"\n[green]Output written to {args.output}[/green]")
-        if args.csv:
-            console.print(f"[green]CSV files written to {args.output.parent}[/green]")
+                # Also write Excel if --xlsx flag is provided
+                if args.xlsx:
+                    task = progress.add_task("Writing Excel output...", total=None)
+                    excel_writer = ExcelWriter(config)
+                    xlsx_path = args.output.with_suffix(".xlsx")
+                    excel_writer.write(xlsx_path, all_transactions, date_gaps)
+                    progress.update(task, completed=True)
+            else:
+                # Excel is primary output (legacy behavior for .xlsx extension)
+                task = progress.add_task("Writing Excel output...", total=None)
+                excel_writer = ExcelWriter(config)
+                excel_writer.write(args.output, all_transactions, date_gaps)
+                progress.update(task, completed=True)
+
+                # Also write CSV if --csv flag is provided
+                if args.csv:
+                    task = progress.add_task("Writing CSV files...", total=None)
+                    csv_exporter = CSVExporter(config)
+                    csv_exporter.export(args.output, all_transactions, date_gaps)
+                    progress.update(task, completed=True)
+
+        if is_csv_output:
+            console.print(f"\n[green]CSV files written to {args.output.parent}[/green]")
+            if args.xlsx:
+                console.print(f"[green]Excel file written to {args.output.with_suffix('.xlsx')}[/green]")
+        else:
+            console.print(f"\n[green]Output written to {args.output}[/green]")
+            if args.csv:
+                console.print(f"[green]CSV files written to {args.output.parent}[/green]")
     else:
         console.print("\n[yellow]Dry run - no output generated[/yellow]")
 

@@ -64,6 +64,13 @@ class CategoryType(Enum):
     TRANSFER = "transfer"  # Excluded from P&L totals (shown in memo section)
 
 
+class MatchMode(Enum):
+    """Matching mode for keywords in categorization rules."""
+
+    SUBSTRING = "substring"  # Default: "SHELL" matches "SHELLPOINT"
+    WORD_BOUNDARY = "word"  # "SHELL" only matches as whole word
+
+
 @dataclass
 class Category:
     """Category definition with hierarchy support.
@@ -122,19 +129,20 @@ class Category:
 class CategoryRule:
     """Rule for automatic transaction categorization.
 
-    All matching uses case-insensitive substring matching on the description field.
+    Keyword matching is case-insensitive and can use substring or word-boundary mode.
 
     Attributes:
         id: Unique identifier for this rule.
         category_id: Category to assign when rule matches.
         subcategory_id: Optional subcategory to assign.
-        keywords: List of keywords for case-insensitive substring matching.
+        keywords: List of keywords for case-insensitive matching.
         regex_patterns: List of regex patterns to match description.
         amount_min: Minimum amount for rule to apply.
         amount_max: Maximum amount for rule to apply.
         account_ids: List of account IDs this rule applies to (empty = all accounts).
         priority: Rule priority (higher = evaluated first).
         is_active: Whether this rule is active.
+        match_mode: How keywords are matched (substring or word boundary).
     """
 
     id: str
@@ -151,6 +159,7 @@ class CategoryRule:
     # Rule settings
     priority: int = 0
     is_active: bool = True
+    match_mode: MatchMode = MatchMode.SUBSTRING
 
     # Compiled regex patterns (cached)
     _compiled_patterns: list[re.Pattern[str]] = field(
@@ -232,14 +241,23 @@ class CategoryRule:
         if self.amount_max is not None and abs_amount > self.amount_max:
             return False
 
-        # Check keywords (case-insensitive substring match)
+        # Check keywords based on match mode
         description_lower = description.lower()
         keyword_match = False
         if self.keywords:
             for keyword in self.keywords:
-                if keyword.lower() in description_lower:
-                    keyword_match = True
-                    break
+                kw_lower = keyword.lower()
+                if self.match_mode == MatchMode.WORD_BOUNDARY:
+                    # Use regex word boundary for whole-word matching
+                    pattern = r'\b' + re.escape(kw_lower) + r'\b'
+                    if re.search(pattern, description_lower):
+                        keyword_match = True
+                        break
+                else:
+                    # Default substring match
+                    if kw_lower in description_lower:
+                        keyword_match = True
+                        break
         else:
             # No keywords specified, consider it a match for keyword criteria
             keyword_match = True
@@ -288,6 +306,13 @@ class CategoryRule:
         if "amount_max" in data:
             amount_max = Decimal(str(data["amount_max"]))
 
+        # Parse match_mode (defaults to substring)
+        match_mode = MatchMode.SUBSTRING
+        if "match_mode" in data:
+            mode_str = str(data["match_mode"]).lower()
+            if mode_str == "word":
+                match_mode = MatchMode.WORD_BOUNDARY
+
         return cls(
             id=str(data["id"]),
             category_id=str(data["category"]),
@@ -299,6 +324,7 @@ class CategoryRule:
             account_ids=list(data.get("account_ids", [])),  # type: ignore[arg-type]
             priority=int(data.get("priority", 0)),  # type: ignore[arg-type]
             is_active=bool(data.get("is_active", True)),
+            match_mode=match_mode,
         )
 
     def __repr__(self) -> str:
