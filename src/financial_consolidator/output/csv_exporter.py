@@ -118,6 +118,17 @@ class CSVExporter:
         """
         output_path = base_dir / f"{base_name}_pl_summary.csv"
 
+        # Calculate date range and collect accounts
+        if transactions:
+            min_date = min(t.date for t in transactions)
+            max_date = max(t.date for t in transactions)
+            date_range = f"{min_date.strftime('%Y-%m-%d')} to {max_date.strftime('%Y-%m-%d')}"
+            # Get unique account names, sorted
+            account_names = sorted(set(t.account_name for t in transactions))
+        else:
+            date_range = "No transactions"
+            account_names = []
+
         # Calculate totals
         income_by_cat: dict[str, float] = {}
         expense_by_cat: dict[str, float] = {}
@@ -139,6 +150,12 @@ class CSVExporter:
         with open(output_path, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
 
+            # Report metadata header
+            writer.writerow(["REPORT SUMMARY", ""])
+            writer.writerow(["Period", date_range])
+            writer.writerow(["Accounts", ", ".join(account_names)])
+            writer.writerow([])
+
             # Income section
             writer.writerow(["INCOME", ""])
             for cat, amount in sorted(income_by_cat.items()):
@@ -159,7 +176,8 @@ class CSVExporter:
             writer.writerow([])
 
             # Transfers memo
-            writer.writerow(["TRANSFERS (Memo - Excluded from P&L)", ""])
+            writer.writerow(["TRANSFERS", ""])
+            writer.writerow(["(Money moved between accounts - not counted as income or expense)", ""])
             for cat, amount in sorted(transfer_by_cat.items()):
                 writer.writerow([sanitize_for_csv(cat), f"{amount:.2f}"])
             writer.writerow(["Total Transfers", f"{sum(transfer_by_cat.values()):.2f}"])
