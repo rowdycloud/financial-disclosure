@@ -1,10 +1,8 @@
 """Duplicate transaction detection."""
 
 from collections import defaultdict
-from datetime import timedelta
 from decimal import Decimal
 from difflib import SequenceMatcher
-from typing import Optional
 
 from financial_consolidator.config import Config
 from financial_consolidator.models.transaction import Transaction

@@ -1,9 +1,7 @@
 """PDF parser using pdfplumber library for structured tables."""
 
-from datetime import date
 from decimal import Decimal
 from pathlib import Path
-from typing import Optional
 
 from financial_consolidator.models.transaction import RawTransaction, TransactionType
 from financial_consolidator.parsers.base import BaseParser, ParseError
@@ -120,7 +118,7 @@ class PDFParser(BaseParser):
         )
         return transactions
 
-    def detect_institution(self, file_path: Path) -> Optional[str]:
+    def detect_institution(self, file_path: Path) -> str | None:
         """Detect financial institution from PDF content.
 
         Args:
@@ -144,7 +142,7 @@ class PDFParser(BaseParser):
 
         return None
 
-    def _detect_institution_from_text(self, text: str) -> Optional[str]:
+    def _detect_institution_from_text(self, text: str) -> str | None:
         """Detect institution from page text.
 
         Args:
@@ -180,7 +178,7 @@ class PDFParser(BaseParser):
 
     def _parse_table(
         self,
-        table: list[list[Optional[str]]],
+        table: list[list[str | None]],
         source_file: str,
         page_num: int,
         table_num: int,
@@ -249,8 +247,8 @@ class PDFParser(BaseParser):
         return transactions, skipped_count
 
     def _find_header_row(
-        self, table: list[list[Optional[str]]]
-    ) -> Optional[int]:
+        self, table: list[list[str | None]]
+    ) -> int | None:
         """Find the header row in a table.
 
         Args:
@@ -282,7 +280,7 @@ class PDFParser(BaseParser):
 
     def _detect_column_mapping(
         self, headers: list[str]
-    ) -> Optional[dict[str, int]]:
+    ) -> dict[str, int] | None:
         """Detect column mapping from headers.
 
         Args:
@@ -347,12 +345,12 @@ class PDFParser(BaseParser):
 
     def _parse_row(
         self,
-        row: list[Optional[str]],
+        row: list[str | None],
         mapping: dict[str, int],
         source_file: str,
         page_num: int,
         table_num: int,
-    ) -> Optional[RawTransaction]:
+    ) -> RawTransaction | None:
         """Parse a single row into a RawTransaction.
 
         Args:
@@ -381,8 +379,8 @@ class PDFParser(BaseParser):
         description = description.strip()
 
         # Get amount
-        amount: Optional[Decimal] = None
-        transaction_type: Optional[TransactionType] = None
+        amount: Decimal | None = None
+        transaction_type: TransactionType | None = None
 
         if "amount" in mapping:
             amount_str = self._safe_get(row, mapping["amount"])
@@ -426,7 +424,7 @@ class PDFParser(BaseParser):
             return None
 
         # Get optional balance
-        balance: Optional[Decimal] = None
+        balance: Decimal | None = None
         if "balance" in mapping:
             balance_str = self._safe_get(row, mapping["balance"])
             if balance_str:
@@ -455,8 +453,8 @@ class PDFParser(BaseParser):
         )
 
     def _safe_get(
-        self, row: list[Optional[str]], idx: Optional[int]
-    ) -> Optional[str]:
+        self, row: list[str | None], idx: int | None
+    ) -> str | None:
         """Safely get value from row.
 
         Args:

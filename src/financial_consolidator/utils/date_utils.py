@@ -2,7 +2,6 @@
 
 import re
 from datetime import date, datetime
-from typing import Optional
 
 # Common date format patterns
 #
@@ -115,7 +114,7 @@ def date_to_iso(d: date) -> str:
     return d.isoformat()
 
 
-def safe_parse_date(raw_date: Optional[str], default: Optional[date] = None) -> Optional[date]:
+def safe_parse_date(raw_date: str | None, default: date | None = None) -> date | None:
     """Safely parse a date string, returning default on failure.
 
     Args:
@@ -160,8 +159,8 @@ def get_quarter(d: date) -> int:
 
 def is_date_in_range(
     d: date,
-    start_date: Optional[date] = None,
-    end_date: Optional[date] = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
 ) -> bool:
     """Check if a date is within a range.
 

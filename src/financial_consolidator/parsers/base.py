@@ -2,7 +2,6 @@
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Optional
 
 from financial_consolidator.models.transaction import RawTransaction
 from financial_consolidator.utils.logging_config import get_logger
@@ -13,7 +12,7 @@ logger = get_logger(__name__)
 class ParseError(Exception):
     """Exception raised when parsing fails."""
 
-    def __init__(self, message: str, file_path: Optional[Path] = None):
+    def __init__(self, message: str, file_path: Path | None = None):
         """Initialize ParseError.
 
         Args:
@@ -83,7 +82,7 @@ class BaseParser(ABC):
         """
         pass
 
-    def detect_institution(self, file_path: Path) -> Optional[str]:
+    def detect_institution(self, file_path: Path) -> str | None:
         """Attempt to detect the financial institution from file content.
 
         Override in subclasses to provide institution-specific detection.

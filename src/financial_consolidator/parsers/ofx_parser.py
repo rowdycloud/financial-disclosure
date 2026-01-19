@@ -4,7 +4,6 @@ import io
 import re
 from decimal import Decimal
 from pathlib import Path
-from typing import Optional
 
 from financial_consolidator.models.transaction import RawTransaction, TransactionType
 from financial_consolidator.parsers.base import BaseParser, ParseError
@@ -165,7 +164,7 @@ class OFXParser(BaseParser):
         logger.info(f"Parsed {len(transactions)} transactions from {file_path.name}")
         return transactions
 
-    def detect_institution(self, file_path: Path) -> Optional[str]:
+    def detect_institution(self, file_path: Path) -> str | None:
         """Detect financial institution from OFX content.
 
         Args:
@@ -187,7 +186,7 @@ class OFXParser(BaseParser):
         except Exception:
             return None
 
-    def _get_institution_name(self, ofx: object) -> Optional[str]:
+    def _get_institution_name(self, ofx: object) -> str | None:
         """Extract institution name from OFX object.
 
         Args:
@@ -214,7 +213,7 @@ class OFXParser(BaseParser):
 
         return None
 
-    def _fid_to_name(self, fid: str) -> Optional[str]:
+    def _fid_to_name(self, fid: str) -> str | None:
         """Convert financial institution ID to name.
 
         Args:
@@ -240,10 +239,10 @@ class OFXParser(BaseParser):
         self,
         txn: object,
         source_file: str,
-        account_id: Optional[str],
-        account_type: Optional[str],
-        institution: Optional[str],
-    ) -> Optional[RawTransaction]:
+        account_id: str | None,
+        account_type: str | None,
+        institution: str | None,
+    ) -> RawTransaction | None:
         """Parse a single OFX transaction.
 
         Args:

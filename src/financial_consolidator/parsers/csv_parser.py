@@ -5,7 +5,6 @@ import re
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
-from typing import Optional
 
 from financial_consolidator.models.transaction import RawTransaction, TransactionType
 from financial_consolidator.parsers.base import BaseParser, ParseError
@@ -28,14 +27,14 @@ class ColumnMapping:
 
     date_col: int
     description_col: int
-    amount_col: Optional[int] = None  # Single amount column (signed)
-    debit_col: Optional[int] = None  # Separate debit column
-    credit_col: Optional[int] = None  # Separate credit column
-    balance_col: Optional[int] = None
-    category_col: Optional[int] = None
-    type_col: Optional[int] = None  # Transaction type column
-    check_number_col: Optional[int] = None
-    memo_col: Optional[int] = None
+    amount_col: int | None = None  # Single amount column (signed)
+    debit_col: int | None = None  # Separate debit column
+    credit_col: int | None = None  # Separate credit column
+    balance_col: int | None = None
+    category_col: int | None = None
+    type_col: int | None = None  # Transaction type column
+    check_number_col: int | None = None
+    memo_col: int | None = None
 
 
 @dataclass
@@ -46,8 +45,8 @@ class CSVFormat:
     has_header: bool
     skip_rows: int
     column_mapping: ColumnMapping
-    institution: Optional[str] = None
-    date_format: Optional[str] = None
+    institution: str | None = None
+    date_format: str | None = None
 
 
 # Known bank column patterns for auto-detection
@@ -294,7 +293,7 @@ class CSVParser(BaseParser):
             logger.warning(f"{skipped_count} rows could not be parsed in {file_path.name} - use -vv for details")
         return transactions
 
-    def detect_institution(self, file_path: Path) -> Optional[str]:
+    def detect_institution(self, file_path: Path) -> str | None:
         """Detect financial institution from CSV content.
 
         Args:
@@ -306,7 +305,7 @@ class CSVParser(BaseParser):
         fmt = self._detect_format(file_path)
         return fmt.institution if fmt else None
 
-    def _detect_format(self, file_path: Path) -> Optional[CSVFormat]:
+    def _detect_format(self, file_path: Path) -> CSVFormat | None:
         """Detect CSV format from file content.
 
         Args:
@@ -346,7 +345,7 @@ class CSVParser(BaseParser):
         # Try to match known formats
         col_indices = {h.lower().strip(): i for i, h in enumerate(headers)}
 
-        for format_name, format_info in KNOWN_FORMATS.items():
+        for _format_name, format_info in KNOWN_FORMATS.items():
             known_headers = format_info["headers"]
             match_count = sum(1 for h in known_headers if h in col_indices)
 
@@ -497,7 +496,7 @@ class CSVParser(BaseParser):
 
     def _auto_detect_columns(
         self, headers: list[str], col_indices: dict[str, int]
-    ) -> Optional[ColumnMapping]:
+    ) -> ColumnMapping | None:
         """Auto-detect column mapping from header names.
 
         Args:
@@ -571,7 +570,7 @@ class CSVParser(BaseParser):
 
     def _parse_row(
         self, row: list[str], mapping: ColumnMapping, source_file: str
-    ) -> Optional[RawTransaction]:
+    ) -> RawTransaction | None:
         """Parse a single CSV row into a RawTransaction.
 
         Args:
@@ -604,8 +603,8 @@ class CSVParser(BaseParser):
             return None
 
         # Get amount
-        amount: Optional[Decimal] = None
-        transaction_type: Optional[TransactionType] = None
+        amount: Decimal | None = None
+        transaction_type: TransactionType | None = None
 
         if mapping.amount_col is not None:
             # Single amount column (signed)
@@ -659,7 +658,7 @@ class CSVParser(BaseParser):
             return None
 
         # Get optional fields
-        balance: Optional[Decimal] = None
+        balance: Decimal | None = None
         if mapping.balance_col is not None:
             balance_str = self._safe_get(row, mapping.balance_col, "")
             if balance_str:
@@ -697,7 +696,7 @@ class CSVParser(BaseParser):
             },
         )
 
-    def _safe_get(self, row: list[str], idx: Optional[int], default: str) -> str:
+    def _safe_get(self, row: list[str], idx: int | None, default: str) -> str:
         """Safely get value from row.
 
         Args:

@@ -3,7 +3,6 @@
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Optional, Union
 
 from financial_consolidator.models.transaction import RawTransaction, TransactionType
 from financial_consolidator.parsers.base import BaseParser, ParseError
@@ -111,7 +110,7 @@ class ExcelParser(BaseParser):
         logger.info(f"Parsed {len(transactions)} transactions from {file_path.name}")
         return transactions
 
-    def detect_institution(self, file_path: Path) -> Optional[str]:
+    def detect_institution(self, file_path: Path) -> str | None:
         """Detect financial institution from Excel content.
 
         Args:
@@ -178,7 +177,7 @@ class ExcelParser(BaseParser):
 
     def _find_header_row(
         self, rows: list[tuple[object, ...]]
-    ) -> Optional[int]:
+    ) -> int | None:
         """Find the header row in the worksheet.
 
         Args:
@@ -213,7 +212,7 @@ class ExcelParser(BaseParser):
 
     def _detect_column_mapping(
         self, headers: list[str]
-    ) -> Optional[dict[str, int]]:
+    ) -> dict[str, int] | None:
         """Detect column mapping from headers.
 
         Args:
@@ -294,7 +293,7 @@ class ExcelParser(BaseParser):
         mapping: dict[str, int],
         source_file: str,
         sheet_name: str,
-    ) -> Optional[RawTransaction]:
+    ) -> RawTransaction | None:
         """Parse a single row into a RawTransaction.
 
         Args:
@@ -322,8 +321,8 @@ class ExcelParser(BaseParser):
         description = str(description).strip()
 
         # Get amount
-        amount: Optional[Decimal] = None
-        transaction_type: Optional[TransactionType] = None
+        amount: Decimal | None = None
+        transaction_type: TransactionType | None = None
 
         if "amount" in mapping:
             amount_val = self._safe_get(row, mapping["amount"])
@@ -356,7 +355,7 @@ class ExcelParser(BaseParser):
             return None
 
         # Get optional fields
-        balance: Optional[Decimal] = None
+        balance: Decimal | None = None
         if "balance" in mapping:
             balance_val = self._safe_get(row, mapping["balance"])
             if balance_val is not None:
@@ -398,8 +397,8 @@ class ExcelParser(BaseParser):
         )
 
     def _safe_get(
-        self, row: tuple[object, ...], idx: Optional[int]
-    ) -> Optional[object]:
+        self, row: tuple[object, ...], idx: int | None
+    ) -> object | None:
         """Safely get value from row.
 
         Args:
@@ -413,7 +412,7 @@ class ExcelParser(BaseParser):
             return None
         return row[idx]
 
-    def _parse_date_value(self, value: object) -> Optional[date]:
+    def _parse_date_value(self, value: object) -> date | None:
         """Parse date from Excel cell value.
 
         Args:
@@ -438,7 +437,7 @@ class ExcelParser(BaseParser):
         except Exception:
             return None
 
-    def _parse_amount_value(self, value: object) -> Optional[Decimal]:
+    def _parse_amount_value(self, value: object) -> Decimal | None:
         """Parse amount from Excel cell value.
 
         Args:

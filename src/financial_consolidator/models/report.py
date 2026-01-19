@@ -3,7 +3,6 @@
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
-from typing import Optional
 
 
 @dataclass
@@ -21,8 +20,8 @@ class PLSummary:
         transfer_by_category: Transfer amounts keyed by category name.
     """
 
-    period_start: Optional[date]
-    period_end: Optional[date]
+    period_start: date | None
+    period_end: date | None
     accounts: list[str]
     income_by_category: dict[str, Decimal] = field(default_factory=dict)
     expense_by_category: dict[str, Decimal] = field(default_factory=dict)

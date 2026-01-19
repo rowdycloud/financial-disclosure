@@ -2,7 +2,6 @@
 
 from collections import defaultdict
 from decimal import Decimal
-from typing import Optional
 
 from financial_consolidator.config import Config
 from financial_consolidator.models.transaction import Transaction

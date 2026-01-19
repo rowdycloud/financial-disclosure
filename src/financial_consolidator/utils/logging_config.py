@@ -3,7 +3,6 @@
 import logging
 import sys
 from pathlib import Path
-from typing import Optional
 
 # Default log file name
 DEFAULT_LOG_FILE = "financial_consolidator.log"
@@ -30,7 +29,7 @@ DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 def setup_logging(
     level: str = "INFO",
-    log_file: Optional[str] = None,
+    log_file: str | None = None,
     console_output: bool = True,
 ) -> logging.Logger:
     """Configure logging for the application.
@@ -111,9 +110,9 @@ class LogContext:
 
     def __exit__(
         self,
-        exc_type: Optional[type],
-        exc_val: Optional[BaseException],
-        exc_tb: Optional[object],
+        exc_type: type | None,
+        exc_val: BaseException | None,
+        exc_tb: object | None,
     ) -> bool:
         if exc_type is not None:
             self.logger.error(

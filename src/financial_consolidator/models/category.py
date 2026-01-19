@@ -1,14 +1,38 @@
 """Category and categorization rule data models."""
 
+import re
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import Enum
-from typing import Optional
-import re
 
 from financial_consolidator.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+
+@dataclass
+class MatchResult:
+    """Result of a categorization rule match with confidence scoring.
+
+    Attributes:
+        matched: Whether the rule matched the transaction.
+        confidence: Confidence score from 0.0 to 1.0.
+        matched_by: Type of match ("keyword", "regex", "amount", "account").
+        matched_value: The specific keyword or pattern that matched.
+        factors: List of explanations for the confidence calculation.
+    """
+
+    matched: bool
+    confidence: float
+    matched_by: str
+    matched_value: str
+    factors: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        """Validate confidence is in valid range."""
+        if not 0.0 <= self.confidence <= 1.0:
+            raise ValueError(f"Confidence must be between 0.0 and 1.0, got {self.confidence}")
+
 
 # Maximum pattern length to prevent overly complex patterns
 MAX_PATTERN_LENGTH = 500
@@ -87,9 +111,9 @@ class Category:
     id: str
     name: str
     category_type: CategoryType
-    parent_id: Optional[str] = None
+    parent_id: str | None = None
     display_order: int = 0
-    color: Optional[str] = None
+    color: str | None = None
 
     @property
     def is_subcategory(self) -> bool:
@@ -147,13 +171,13 @@ class CategoryRule:
 
     id: str
     category_id: str
-    subcategory_id: Optional[str] = None
+    subcategory_id: str | None = None
 
     # Matching criteria
     keywords: list[str] = field(default_factory=list)
     regex_patterns: list[str] = field(default_factory=list)
-    amount_min: Optional[Decimal] = None
-    amount_max: Optional[Decimal] = None
+    amount_min: Decimal | None = None
+    amount_max: Decimal | None = None
     account_ids: list[str] = field(default_factory=list)
 
     # Rule settings
@@ -210,8 +234,8 @@ class CategoryRule:
         description: str,
         amount: Decimal,
         account_id: str,
-    ) -> bool:
-        """Check if a transaction matches this rule.
+    ) -> MatchResult | None:
+        """Check if a transaction matches this rule and return match details.
 
         Args:
             description: Transaction description.
@@ -219,27 +243,41 @@ class CategoryRule:
             account_id: Account ID of the transaction.
 
         Returns:
-            True if the transaction matches. Rules match when:
+            MatchResult with confidence scoring if matched, None if no match.
+            Rules match when:
             - Account filter matches (if specified)
             - Amount (absolute value) is within range (if specified)
             - At least one keyword matches OR at least one regex matches
               (if both are specified, only one needs to match)
+
+        Confidence scoring:
+            - Regex with ^ prefix (anchored): 0.92-1.00
+            - Regex pattern: 0.85-0.98
+            - Word boundary keyword: 0.77-0.95
+            - Substring keyword: 0.70-0.88
+            - Amount-only or account-only match: 0.50-0.70
         """
         if not self.is_active:
-            return False
+            return None
 
         # Check account filter
         if self.account_ids and account_id not in self.account_ids:
-            return False
+            return None
 
         # Use absolute value for amount comparisons (amounts can be negative for debits)
         abs_amount = abs(amount)
 
         # Check amount range
         if self.amount_min is not None and abs_amount < self.amount_min:
-            return False
+            return None
         if self.amount_max is not None and abs_amount > self.amount_max:
-            return False
+            return None
+
+        # Track what matched for confidence calculation
+        matched_keyword: str | None = None
+        matched_pattern: str | None = None
+        match_mode_used: str | None = None
+        confidence_factors: list[str] = []
 
         # Check keywords based on match mode
         description_lower = description.lower()
@@ -252,41 +290,180 @@ class CategoryRule:
                     pattern = r'\b' + re.escape(kw_lower) + r'\b'
                     if re.search(pattern, description_lower):
                         keyword_match = True
+                        matched_keyword = keyword
+                        match_mode_used = "word_boundary"
                         break
                 else:
                     # Default substring match
                     if kw_lower in description_lower:
                         keyword_match = True
+                        matched_keyword = keyword
+                        match_mode_used = "substring"
                         break
         else:
             # No keywords specified, consider it a match for keyword criteria
             keyword_match = True
 
         # Check regex patterns
-        # Note: We distinguish between "no patterns specified" and "patterns specified but all rejected"
+        # Note: We distinguish between "no patterns specified" and
+        # "patterns specified but all rejected"
         regex_match = False
         if self._compiled_patterns:
-            for pattern in self._compiled_patterns:
+            for i, pattern in enumerate(self._compiled_patterns):
                 if pattern.search(description):
                     regex_match = True
+                    if i < len(self.regex_patterns):
+                        matched_pattern = self.regex_patterns[i]
+                    else:
+                        matched_pattern = str(pattern.pattern)
                     break
         elif not self.regex_patterns:
             # No regex patterns were specified at all - don't filter by regex
             regex_match = True
-        # else: regex_patterns were specified but all were rejected/invalid - regex_match stays False
+        # else: patterns were specified but rejected/invalid - regex_match stays False
 
-        # Must match at least one keyword OR one regex if either is specified
-        # Use original regex_patterns to detect intent (user wanted regex matching)
+        # Determine if we have a match
+        has_match = False
         if self.keywords and self.regex_patterns:
-            return keyword_match or regex_match
+            has_match = keyword_match or regex_match
         elif self.keywords:
-            return keyword_match
+            has_match = keyword_match
         elif self.regex_patterns:
-            # User intended regex matching - return regex_match (False if all patterns were rejected)
-            return regex_match
+            has_match = regex_match
         else:
             # No keywords or regex specified - match based on amount/account only
-            return True
+            has_match = True
+
+        if not has_match:
+            return None
+
+        # Calculate confidence score based on match type
+        confidence = self._calculate_confidence(
+            matched_keyword=matched_keyword,
+            matched_pattern=matched_pattern,
+            match_mode_used=match_mode_used,
+            description=description,
+            confidence_factors=confidence_factors,
+        )
+
+        # Determine matched_by and matched_value
+        if matched_pattern:
+            matched_by = "regex"
+            matched_value = matched_pattern
+        elif matched_keyword:
+            matched_by = "keyword"
+            matched_value = matched_keyword
+        else:
+            matched_by = "filter"
+            matched_value = "amount/account filter"
+
+        return MatchResult(
+            matched=True,
+            confidence=confidence,
+            matched_by=matched_by,
+            matched_value=matched_value,
+            factors=confidence_factors,
+        )
+
+    def _calculate_confidence(
+        self,
+        matched_keyword: str | None,
+        matched_pattern: str | None,
+        match_mode_used: str | None,
+        description: str,
+        confidence_factors: list[str],
+    ) -> float:
+        """Calculate confidence score based on match characteristics.
+
+        Args:
+            matched_keyword: The keyword that matched (if any).
+            matched_pattern: The regex pattern that matched (if any).
+            match_mode_used: The match mode used ("word_boundary" or "substring").
+            description: The transaction description.
+            confidence_factors: List to append explanation factors to.
+
+        Returns:
+            Confidence score between 0.0 and 1.0.
+        """
+        base_confidence = 0.50
+
+        if matched_pattern:
+            # Regex match - check if anchored
+            if matched_pattern.startswith('^'):
+                # Anchored regex (very specific)
+                base_confidence = 0.92
+                confidence_factors.append(f"Anchored regex match: {matched_pattern}")
+                # Bonus for longer patterns (more specific)
+                pattern_len = len(matched_pattern)
+                if pattern_len > 10:
+                    base_confidence = min(1.0, base_confidence + 0.04)
+                    confidence_factors.append(f"Long pattern ({pattern_len} chars)")
+                if pattern_len > 20:
+                    base_confidence = min(1.0, base_confidence + 0.04)
+            else:
+                # Non-anchored regex
+                base_confidence = 0.85
+                confidence_factors.append(f"Regex pattern match: {matched_pattern}")
+                # Bonus for specific patterns
+                if '\\b' in matched_pattern:
+                    base_confidence = min(0.98, base_confidence + 0.05)
+                    confidence_factors.append("Word boundary in pattern")
+
+        elif matched_keyword:
+            description_lower = description.lower()
+            kw_lower = matched_keyword.lower()
+
+            if match_mode_used == "word_boundary":
+                # Word boundary match
+                base_confidence = 0.77
+                confidence_factors.append(f"Word boundary keyword: {matched_keyword}")
+
+                # Bonus for exact match at start
+                if description_lower.startswith(kw_lower):
+                    base_confidence = min(0.95, base_confidence + 0.10)
+                    confidence_factors.append("Keyword at description start")
+
+                # Bonus for longer keywords (more specific)
+                if len(matched_keyword) > 8:
+                    base_confidence = min(0.95, base_confidence + 0.05)
+                    confidence_factors.append(f"Long keyword ({len(matched_keyword)} chars)")
+
+            else:
+                # Substring match (less specific)
+                base_confidence = 0.70
+                confidence_factors.append(f"Substring keyword: {matched_keyword}")
+
+                # Bonus for exact match at start
+                if description_lower.startswith(kw_lower):
+                    base_confidence = min(0.88, base_confidence + 0.10)
+                    confidence_factors.append("Keyword at description start")
+
+                # Bonus for longer keywords
+                if len(matched_keyword) > 10:
+                    base_confidence = min(0.88, base_confidence + 0.05)
+                    confidence_factors.append(f"Long keyword ({len(matched_keyword)} chars)")
+
+        else:
+            # Amount/account filter only (low confidence)
+            base_confidence = 0.50
+            confidence_factors.append("Matched by amount/account filter only")
+
+            # Slightly increase confidence for specific amount ranges
+            if self.amount_min is not None and self.amount_max is not None:
+                range_size = float(self.amount_max - self.amount_min)
+                if 0 < range_size < 100:
+                    base_confidence = min(0.70, base_confidence + 0.15)
+                    min_amt = self.amount_min
+                    max_amt = self.amount_max
+                    confidence_factors.append(f"Narrow amount range: ${min_amt}-${max_amt}")
+
+        # Apply priority bonus (higher priority rules are more trusted)
+        if self.priority > 50:
+            priority_bonus = min(0.05, (self.priority - 50) / 1000)
+            base_confidence = min(1.0, base_confidence + priority_bonus)
+            confidence_factors.append(f"High priority rule: {self.priority}")
+
+        return round(base_confidence, 3)
 
     @classmethod
     def from_dict(cls, data: dict[str, object]) -> "CategoryRule":
@@ -356,7 +533,7 @@ class ManualOverride:
     amount: Decimal
     keywords: list[str]
     category_id: str
-    subcategory_id: Optional[str] = None
+    subcategory_id: str | None = None
     priority: int = 0
 
     def matches(self, transaction_date: str, transaction_amount: Decimal, description: str) -> bool:

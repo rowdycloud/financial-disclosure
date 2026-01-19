@@ -2,9 +2,6 @@
 
 import re
 from collections import defaultdict
-from datetime import date, timedelta
-from decimal import Decimal
-from typing import Optional
 
 from financial_consolidator.config import Config
 from financial_consolidator.models.category import _is_safe_pattern
@@ -134,7 +131,7 @@ class AnomalyDetector:
                 return True
         return False
 
-    def _check_custom_patterns(self, txn: Transaction) -> Optional[str]:
+    def _check_custom_patterns(self, txn: Transaction) -> str | None:
         """Check transaction against custom anomaly patterns.
 
         Args:

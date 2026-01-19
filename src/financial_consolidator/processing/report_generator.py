@@ -31,7 +31,7 @@ def generate_pl_summary(transactions: list[Transaction], config: Config) -> PLSu
     period_end = max(t.date for t in transactions)
 
     # Accounts (sorted, unique)
-    accounts = sorted(set(t.account_name for t in transactions))
+    accounts = sorted({t.account_name for t in transactions})
 
     # Category totals
     income_by_cat: dict[str, Decimal] = {}

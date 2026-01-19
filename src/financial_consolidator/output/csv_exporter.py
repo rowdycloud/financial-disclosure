@@ -3,7 +3,6 @@
 import csv
 import re
 from pathlib import Path
-from typing import Optional
 
 from financial_consolidator.config import Config
 from financial_consolidator.models.report import PLSummary
@@ -63,7 +62,7 @@ class CSVExporter:
         self,
         base_path: Path,
         transactions: list[Transaction],
-        date_gaps: Optional[list[dict[str, object]]],
+        date_gaps: list[dict[str, object]] | None,
         pl_summary: PLSummary,
     ) -> list[Path]:
         """Export all data to CSV files.
@@ -171,10 +170,11 @@ class CSVExporter:
         with open(output_path, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
 
-            # Headers as specified
+            # Headers with confidence scoring columns
             writer.writerow([
                 "Date", "Account", "Description", "Category", "Sub-category",
-                "Amount", "Balance", "Source File", "Duplicate Flag", "Uncategorized Flag"
+                "Amount", "Balance", "Source File", "Duplicate Flag", "Uncategorized Flag",
+                "Confidence", "Matched Pattern", "Category Source", "Confidence Factors"
             ])
 
             # Sort and write data
@@ -183,6 +183,9 @@ class CSVExporter:
             )
 
             for txn in sorted_txns:
+                # Format confidence factors as semicolon-separated list
+                factors_str = "; ".join(txn.confidence_factors) if txn.confidence_factors else ""
+
                 writer.writerow([
                     date_to_iso(txn.date),
                     sanitize_for_csv(txn.account_name),
@@ -194,6 +197,10 @@ class CSVExporter:
                     sanitize_for_csv(txn.source_file),
                     "Yes" if txn.is_duplicate else "",
                     "Yes" if txn.is_uncategorized else "",
+                    f"{txn.confidence_score:.2f}" if not txn.is_uncategorized else "",
+                    sanitize_for_csv(txn.matched_pattern or ""),
+                    sanitize_for_csv(txn.category_source),
+                    sanitize_for_csv(factors_str),
                 ])
 
         logger.info(f"Exported {len(transactions)} transactions to {output_path}")
@@ -276,9 +283,9 @@ class CSVExporter:
             )
 
         # Get all months
-        all_months = sorted(set(
+        all_months = sorted({
             month for cat_months in by_category.values() for month in cat_months
-        ))
+        })
 
         with open(output_path, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
@@ -355,16 +362,164 @@ class CSVExporter:
         logger.info(f"Exported anomalies to {output_path}")
         return output_path
 
-    def _get_category_type(self, category_id: Optional[str]) -> Optional[str]:
+    def _get_category_type(self, category_id: str | None) -> str | None:
         """Get category type."""
         if not category_id:
             return None
         category = self.config.categories.get(category_id)
         return category.category_type.value if category and category.category_type else None
 
-    def _get_category_name(self, category_id: Optional[str]) -> Optional[str]:
+    def _get_category_name(self, category_id: str | None) -> str | None:
         """Get category display name."""
         if not category_id:
             return None
         category = self.config.categories.get(category_id)
         return category.name if category else category_id
+
+    def export_uncategorized_for_review(
+        self,
+        base_dir: Path,
+        transactions: list[Transaction],
+    ) -> Path:
+        """Export uncategorized transactions grouped by merchant for review.
+
+        Args:
+            base_dir: Output directory.
+            transactions: Transaction data.
+
+        Returns:
+            Path to created file.
+        """
+        output_path = base_dir / "uncategorized_for_review.csv"
+
+        # Filter uncategorized transactions
+        uncategorized = [t for t in transactions if t.is_uncategorized]
+
+        # Group by description (merchant pattern)
+        by_merchant: dict[str, list[Transaction]] = {}
+        for txn in uncategorized:
+            # Normalize description for grouping (strip numbers, etc.)
+            key = self._normalize_merchant(txn.description)
+            if key not in by_merchant:
+                by_merchant[key] = []
+            by_merchant[key].append(txn)
+
+        try:
+            with open(output_path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow([
+                    "Merchant Pattern", "Frequency", "Total Amount",
+                    "Avg Amount", "Example Description"
+                ])
+
+                # Sort by frequency (most common first)
+                sorted_merchants = sorted(
+                    by_merchant.items(),
+                    key=lambda x: len(x[1]),
+                    reverse=True
+                )
+
+                for pattern, txns in sorted_merchants:
+                    total = sum(float(t.amount) for t in txns)
+                    avg = total / len(txns) if txns else 0
+                    example = txns[0].description if txns else ""
+
+                    writer.writerow([
+                        sanitize_for_csv(pattern),
+                        len(txns),
+                        f"{total:.2f}",
+                        f"{avg:.2f}",
+                        sanitize_for_csv(example),
+                    ])
+
+            logger.info(f"Exported {len(by_merchant)} uncategorized patterns to {output_path}")
+        except OSError as e:
+            logger.error(f"Failed to write uncategorized review file {output_path}: {e}")
+            raise OSError(f"Failed to export uncategorized transactions: {e}") from e
+        return output_path
+
+    def _normalize_merchant(self, description: str) -> str:
+        """Normalize merchant description for grouping.
+
+        Removes numbers, excess whitespace, and common suffixes.
+        """
+        # Remove trailing numbers (store IDs, reference numbers)
+        normalized = re.sub(r'\s*#?\d+$', '', description)
+        # Remove common suffixes
+        normalized = re.sub(r'\s*(INC|LLC|CORP|CO)\.?$', '', normalized, flags=re.IGNORECASE)
+        # Collapse whitespace
+        normalized = re.sub(r'\s+', ' ', normalized).strip()
+        return normalized or description
+
+    def export_categorization_summary(
+        self,
+        base_dir: Path,
+        transactions: list[Transaction],
+        ai_stats: dict[str, object] | None = None,
+    ) -> Path:
+        """Export categorization summary statistics.
+
+        Args:
+            base_dir: Output directory.
+            transactions: Transaction data.
+            ai_stats: Optional AI usage statistics.
+
+        Returns:
+            Path to created file.
+        """
+        output_path = base_dir / "categorization_summary.csv"
+
+        total = len(transactions)
+        rule_based = sum(1 for t in transactions if t.category_source == "rule")
+        manual = sum(1 for t in transactions if t.category_source == "manual")
+        ai_categorized = sum(1 for t in transactions if t.category_source == "ai")
+        ai_corrected = sum(1 for t in transactions if t.category_source == "ai_correction")
+        uncategorized = sum(1 for t in transactions if t.is_uncategorized)
+        categorized = total - uncategorized
+
+        # Confidence distribution
+        high_conf = sum(1 for t in transactions if t.confidence_score >= 0.8)
+        med_conf = sum(1 for t in transactions if 0.6 <= t.confidence_score < 0.8)
+        low_conf = sum(1 for t in transactions if 0.0 < t.confidence_score < 0.6)
+
+        try:
+            with open(output_path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+
+                writer.writerow(["CATEGORIZATION SUMMARY", ""])
+                writer.writerow([])
+
+                writer.writerow(["Transaction Counts", ""])
+                writer.writerow(["Total Transactions", total])
+                writer.writerow(["Categorized", categorized])
+                writer.writerow(["Uncategorized", uncategorized])
+                writer.writerow([
+                    "Categorization Rate",
+                    f"{(categorized / total * 100):.1f}%" if total > 0 else "N/A"
+                ])
+                writer.writerow([])
+
+                writer.writerow(["Categorization Sources", ""])
+                writer.writerow(["Rule-Based", rule_based])
+                writer.writerow(["Manual Override", manual])
+                writer.writerow(["AI Categorized", ai_categorized])
+                writer.writerow(["AI Corrected", ai_corrected])
+                writer.writerow([])
+
+                writer.writerow(["Confidence Distribution", ""])
+                writer.writerow(["High (>=80%)", high_conf])
+                writer.writerow(["Medium (60-80%)", med_conf])
+                writer.writerow(["Low (<60%)", low_conf])
+                writer.writerow([])
+
+                if ai_stats:
+                    writer.writerow(["AI Usage Statistics", ""])
+                    writer.writerow(["Total API Requests", ai_stats.get("total_requests", 0)])
+                    writer.writerow(["Total Tokens Used", ai_stats.get("total_tokens", 0)])
+                    writer.writerow(["Total AI Cost", f"${ai_stats.get('total_cost', 0):.4f}"])
+
+            logger.info(f"Exported categorization summary to {output_path}")
+        except OSError as e:
+            logger.error(f"Failed to write categorization summary file {output_path}: {e}")
+            raise OSError(f"Failed to export categorization summary: {e}") from e
+        return output_path

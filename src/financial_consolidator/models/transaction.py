@@ -1,11 +1,10 @@
 """Transaction data models for financial records."""
 
+import uuid
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 from enum import Enum
-from typing import Optional
-import uuid
 
 
 class TransactionType(Enum):
@@ -26,13 +25,13 @@ class RawTransaction:
     date: date
     description: str
     amount: Decimal
-    transaction_type: Optional[TransactionType] = None
-    balance: Optional[Decimal] = None
+    transaction_type: TransactionType | None = None
+    balance: Decimal | None = None
     source_file: str = ""
-    original_category: Optional[str] = None
-    check_number: Optional[str] = None
-    memo: Optional[str] = None
-    raw_data: Optional[dict] = None
+    original_category: str | None = None
+    check_number: str | None = None
+    memo: str | None = None
+    raw_data: dict | None = None
 
 
 @dataclass
@@ -74,22 +73,27 @@ class Transaction:
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
     # Categorization
-    category: Optional[str] = None
-    subcategory: Optional[str] = None
+    category: str | None = None
+    subcategory: str | None = None
     is_uncategorized: bool = True
     category_source: str = "default"
-    category_rule_id: Optional[str] = None
+    category_rule_id: str | None = None
+
+    # Confidence scoring
+    confidence_score: float = 0.0
+    confidence_factors: list[str] = field(default_factory=list)
+    matched_pattern: str | None = None
 
     # Computed fields
-    running_balance: Optional[Decimal] = None
+    running_balance: Decimal | None = None
 
     # Audit trail
-    source_line: Optional[int] = None
-    raw_data: Optional[RawTransaction] = None
+    source_line: int | None = None
+    raw_data: RawTransaction | None = None
 
     # Flags
     is_duplicate: bool = False
-    duplicate_of: Optional[str] = None
+    duplicate_of: str | None = None
     is_anomaly: bool = False
     anomaly_reasons: list[str] = field(default_factory=list)
 
@@ -106,22 +110,31 @@ class Transaction:
         self,
         category_id: str,
         source: str,
-        subcategory_id: Optional[str] = None,
-        rule_id: Optional[str] = None,
+        subcategory_id: str | None = None,
+        rule_id: str | None = None,
+        confidence: float = 1.0,
+        confidence_factors: list[str] | None = None,
+        matched_pattern: str | None = None,
     ) -> None:
         """Assign a category to this transaction.
 
         Args:
             category_id: The category ID to assign.
-            source: How the category was assigned ("rule", "manual", "default").
+            source: How the category was assigned ("rule", "manual", "ai", "default").
             subcategory_id: Optional subcategory ID.
             rule_id: Optional ID of the rule that matched (for rule-based assignment).
+            confidence: Confidence score from 0.0 to 1.0 (default 1.0 for manual).
+            confidence_factors: List of reasons explaining the confidence score.
+            matched_pattern: The keyword or regex pattern that matched.
         """
         self.category = category_id
         self.subcategory = subcategory_id
         self.category_source = source
         self.category_rule_id = rule_id
         self.is_uncategorized = False
+        self.confidence_score = confidence
+        self.confidence_factors = confidence_factors if confidence_factors else []
+        self.matched_pattern = matched_pattern
 
     def flag_as_duplicate(self, original_id: str) -> None:
         """Mark this transaction as a duplicate of another.

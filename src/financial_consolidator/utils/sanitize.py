@@ -1,7 +1,5 @@
 """Sanitization utilities for safe output generation."""
 
-from typing import Optional
-
 
 # Characters that trigger formula execution in spreadsheet applications
 # when they appear at the start of a cell value
@@ -9,7 +7,7 @@ from typing import Optional
 _FORMULA_CHARS = ("=", "+", "-", "@", "\t", "\r", "\n", "|")
 
 
-def sanitize_for_csv(value: Optional[str]) -> Optional[str]:
+def sanitize_for_csv(value: str | None) -> str | None:
     """Sanitize a string value for safe CSV/Excel output.
 
     Prevents formula injection by prefixing values that start with
