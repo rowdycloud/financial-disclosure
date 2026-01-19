@@ -12,6 +12,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
 from financial_consolidator import __version__
 from financial_consolidator.config import Config, load_config, save_accounts
 from financial_consolidator.models.account import Account, AccountType
+from financial_consolidator.processing.report_generator import generate_pl_summary
 from financial_consolidator.utils.logging_config import setup_logging, get_logger
 
 console = Console()
@@ -180,10 +181,10 @@ def generate_default_output_path() -> Path:
     """Generate default output path with timestamp.
 
     Returns:
-        Path with format analysis/analysis_YYYYMMDD_HHMMSS.csv
+        Path with format analysis/YYYYMMDD_HHMMSS/analysis.csv
     """
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return Path(f"analysis/analysis_{timestamp}.csv")
+    return Path(f"analysis/{timestamp}/analysis.csv")
 
 
 def prompt_for_account(filename: str, config: Config) -> Optional[Account]:
@@ -268,6 +269,51 @@ def prompt_for_account(filename: str, config: Config) -> Optional[Account]:
 
         console.print(f"[green]Created account '{account_name}' and mapped '{filename}'[/green]")
         return account
+
+
+def find_stale_mappings(config: Config, discovered_files: list[Path]) -> list[str]:
+    """Find file mappings that don't correspond to any discovered files.
+
+    Args:
+        config: Current configuration with file_mappings.
+        discovered_files: List of files found in input directory.
+
+    Returns:
+        List of stale filenames (mapped but not found).
+    """
+    discovered_names = {f.name for f in discovered_files}
+    stale = [
+        filename for filename in config.file_mappings
+        if filename not in discovered_names
+    ]
+    return stale
+
+
+def prompt_prune_stale_mappings(stale_filenames: list[str], config: Config) -> bool:
+    """Prompt user to prune stale file mappings.
+
+    Args:
+        stale_filenames: List of stale mapping filenames.
+        config: Configuration to modify.
+
+    Returns:
+        True if mappings were pruned, False otherwise.
+    """
+    console.print(f"\n[yellow]Found {len(stale_filenames)} stale file mapping(s):[/yellow]")
+    for filename in stale_filenames[:10]:
+        console.print(f"  - {filename}")
+    if len(stale_filenames) > 10:
+        console.print(f"  ... and {len(stale_filenames) - 10} more")
+
+    response = console.input("\n[bold]Remove stale mappings from accounts.yaml? [Y/n]:[/bold] ").strip().lower()
+
+    if response in ("y", ""):
+        for filename in stale_filenames:
+            config.file_mappings.pop(filename, None)
+        console.print(f"[green]Removed {len(stale_filenames)} stale mapping(s)[/green]")
+        return True
+
+    return False
 
 
 def validate_config(args: argparse.Namespace) -> int:
@@ -508,6 +554,12 @@ def main() -> int:
         console.print("[yellow]No supported files found in input directory.[/yellow]")
         return 0
 
+    # Check for stale mappings (interactive mode only)
+    if not args.no_interactive:
+        stale_mappings = find_stale_mappings(config, files)
+        if stale_mappings:
+            prompt_prune_stale_mappings(stale_mappings, config)
+
     # Phase 1: Resolve account mappings (interactive prompts happen here, before progress bar)
     file_account_map: dict[Path, Account] = {}
     for file_path in files:
@@ -532,7 +584,8 @@ def main() -> int:
         task = progress.add_task("Parsing files...", total=len(files_to_parse))
 
         for file_path in files_to_parse:
-            progress.update(task, advance=1, description=f"Parsing {file_path.name}...")
+            progress.console.print(f"  Parsing {file_path.name}")
+            progress.update(task, advance=1)
             account = file_account_map[file_path]
 
             # Parse file
@@ -579,6 +632,9 @@ def main() -> int:
         anomaly_detector.detect_anomalies(all_transactions)
         date_gaps = anomaly_detector.get_date_gaps(all_transactions)
 
+    # Generate P&L summary (shared data for both CSV and Excel exporters)
+    pl_summary = generate_pl_summary(all_transactions, config)
+
     # Calculate statistics
     categorized = sum(1 for t in all_transactions if not t.is_uncategorized)
     uncategorized = sum(1 for t in all_transactions if t.is_uncategorized)
@@ -594,31 +650,31 @@ def main() -> int:
         with create_progress() as progress:
             if is_csv_output:
                 # CSV is primary output
-                task = progress.add_task("Writing CSV files...", total=None)
+                task = progress.add_task("Writing CSV files...", total=1)
                 csv_exporter = CSVExporter(config)
-                csv_exporter.export(args.output, all_transactions, date_gaps)
-                progress.update(task, completed=True)
+                csv_exporter.export(args.output, all_transactions, date_gaps, pl_summary)
+                progress.update(task, advance=1)
 
                 # Also write Excel if --xlsx flag is provided
                 if args.xlsx:
-                    task = progress.add_task("Writing Excel output...", total=None)
+                    task = progress.add_task("Writing Excel output...", total=1)
                     excel_writer = ExcelWriter(config)
                     xlsx_path = args.output.with_suffix(".xlsx")
-                    excel_writer.write(xlsx_path, all_transactions, date_gaps)
-                    progress.update(task, completed=True)
+                    excel_writer.write(xlsx_path, all_transactions, date_gaps, pl_summary)
+                    progress.update(task, advance=1)
             else:
                 # Excel is primary output (legacy behavior for .xlsx extension)
-                task = progress.add_task("Writing Excel output...", total=None)
+                task = progress.add_task("Writing Excel output...", total=1)
                 excel_writer = ExcelWriter(config)
-                excel_writer.write(args.output, all_transactions, date_gaps)
-                progress.update(task, completed=True)
+                excel_writer.write(args.output, all_transactions, date_gaps, pl_summary)
+                progress.update(task, advance=1)
 
                 # Also write CSV if --csv flag is provided
                 if args.csv:
-                    task = progress.add_task("Writing CSV files...", total=None)
+                    task = progress.add_task("Writing CSV files...", total=1)
                     csv_exporter = CSVExporter(config)
-                    csv_exporter.export(args.output, all_transactions, date_gaps)
-                    progress.update(task, completed=True)
+                    csv_exporter.export(args.output, all_transactions, date_gaps, pl_summary)
+                    progress.update(task, advance=1)
 
         if is_csv_output:
             console.print(f"\n[green]CSV files written to {args.output.parent}[/green]")
