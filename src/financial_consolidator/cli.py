@@ -271,6 +271,51 @@ def prompt_for_account(filename: str, config: Config) -> Optional[Account]:
         return account
 
 
+def find_stale_mappings(config: Config, discovered_files: list[Path]) -> list[str]:
+    """Find file mappings that don't correspond to any discovered files.
+
+    Args:
+        config: Current configuration with file_mappings.
+        discovered_files: List of files found in input directory.
+
+    Returns:
+        List of stale filenames (mapped but not found).
+    """
+    discovered_names = {f.name for f in discovered_files}
+    stale = [
+        filename for filename in config.file_mappings
+        if filename not in discovered_names
+    ]
+    return stale
+
+
+def prompt_prune_stale_mappings(stale_filenames: list[str], config: Config) -> bool:
+    """Prompt user to prune stale file mappings.
+
+    Args:
+        stale_filenames: List of stale mapping filenames.
+        config: Configuration to modify.
+
+    Returns:
+        True if mappings were pruned, False otherwise.
+    """
+    console.print(f"\n[yellow]Found {len(stale_filenames)} stale file mapping(s):[/yellow]")
+    for filename in stale_filenames[:10]:
+        console.print(f"  - {filename}")
+    if len(stale_filenames) > 10:
+        console.print(f"  ... and {len(stale_filenames) - 10} more")
+
+    response = console.input("\n[bold]Remove stale mappings from accounts.yaml? [Y/n]:[/bold] ").strip().lower()
+
+    if response in ("y", ""):
+        for filename in stale_filenames:
+            config.file_mappings.pop(filename, None)
+        console.print(f"[green]Removed {len(stale_filenames)} stale mapping(s)[/green]")
+        return True
+
+    return False
+
+
 def validate_config(args: argparse.Namespace) -> int:
     """Validate configuration files.
 
@@ -508,6 +553,12 @@ def main() -> int:
     if total_files == 0:
         console.print("[yellow]No supported files found in input directory.[/yellow]")
         return 0
+
+    # Check for stale mappings (interactive mode only)
+    if not args.no_interactive:
+        stale_mappings = find_stale_mappings(config, files)
+        if stale_mappings:
+            prompt_prune_stale_mappings(stale_mappings, config)
 
     # Phase 1: Resolve account mappings (interactive prompts happen here, before progress bar)
     file_account_map: dict[Path, Account] = {}
