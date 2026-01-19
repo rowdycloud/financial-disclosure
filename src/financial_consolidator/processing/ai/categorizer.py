@@ -1,5 +1,6 @@
 """AI-powered transaction categorizer."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from financial_consolidator.config import Config
@@ -269,6 +270,7 @@ class AICategorizer:
         transactions: list[Transaction],
         batch_size: int = 20,
         apply_results: bool = True,
+        progress_callback: Callable[[int, int], None] | None = None,
     ) -> BatchResult:
         """Categorize multiple transactions in batches.
 
@@ -276,6 +278,7 @@ class AICategorizer:
             transactions: Transactions to categorize.
             batch_size: Transactions per batch.
             apply_results: Whether to apply results to transactions.
+            progress_callback: Optional callback for progress updates (current_batch, total_batches).
 
         Returns:
             BatchResult with all results and statistics.
@@ -286,7 +289,12 @@ class AICategorizer:
         # Pre-allocate results list to maintain transaction order
         result.results = [None] * len(transactions)  # type: ignore[list-item]
 
+        total_batches = (len(transactions) + batch_size - 1) // batch_size
+
         for batch_start in range(0, len(transactions), batch_size):
+            batch_num = batch_start // batch_size + 1
+            logger.info(f"Processing batch {batch_num}/{total_batches}")
+
             batch = transactions[batch_start : batch_start + batch_size]
 
             # Build batch data
@@ -378,7 +386,6 @@ class AICategorizer:
                             result.failed += 1
                             result.errors.append(f"AI returned invalid index {raw_idx}")
                 else:
-                    batch_num = batch_start // batch_size
                     result.errors.append(f"Unexpected response format for batch {batch_num}")
                     result.failed += len(batch)
 
@@ -386,6 +393,10 @@ class AICategorizer:
                 logger.error(f"Batch categorization failed: {e}")
                 result.errors.append(str(e))
                 result.failed += len(batch)
+
+            # Report progress after batch is processed (success or failure)
+            if progress_callback:
+                progress_callback(batch_num, total_batches)
 
         # Count transactions that didn't get results (None entries)
         # Note: None entries are preserved to maintain positional correspondence
@@ -459,6 +470,7 @@ class AICategorizer:
         transactions: list[Transaction],
         use_batch: bool = True,
         batch_size: int = 20,
+        progress_callback: Callable[[int, int], None] | None = None,
     ) -> BatchResult:
         """Categorize all uncategorized transactions.
 
@@ -466,6 +478,7 @@ class AICategorizer:
             transactions: All transactions (will filter for uncategorized).
             use_batch: Whether to use batch mode.
             batch_size: Transactions per batch if batching.
+            progress_callback: Optional callback for progress updates (current_batch, total_batches).
 
         Returns:
             BatchResult with results and statistics.
@@ -479,11 +492,14 @@ class AICategorizer:
             return BatchResult()
 
         if use_batch:
-            return self.categorize_batch(uncategorized, batch_size)
+            return self.categorize_batch(
+                uncategorized, batch_size, apply_results=True, progress_callback=progress_callback
+            )
         else:
             # Single transaction mode
             result = BatchResult()
-            for txn in uncategorized:
+            total = len(uncategorized)
+            for idx, txn in enumerate(uncategorized, start=1):
                 try:
                     cat_result = self.categorize_transaction(txn)
                     result.results.append(cat_result)
@@ -505,6 +521,10 @@ class AICategorizer:
                     logger.error(f"Categorization failed for '{txn.description}': {e}")
                     result.errors.append(str(e))
                     result.failed += 1
+
+                # Report progress after each transaction
+                if progress_callback:
+                    progress_callback(idx, total)
 
             return result
 

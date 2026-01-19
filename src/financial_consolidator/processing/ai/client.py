@@ -6,11 +6,14 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from rich.console import Console
+
 from financial_consolidator.processing.ai.cost_estimator import CostEstimator
 from financial_consolidator.processing.ai.models import AIUsageStats
 from financial_consolidator.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
+_console = Console(stderr=True)  # Use stderr to avoid conflicts with Progress bar on stdout
 
 
 class AIClientError(Exception):
@@ -128,6 +131,7 @@ class AIClient:
         if self._request_count >= self.config.requests_per_minute:
             wait_time = 60 - (current_time - self._request_window_start)
             if wait_time > 0:
+                _console.print(f"[yellow]Rate limit reached, waiting {wait_time:.0f}s...[/yellow]")
                 logger.info(f"Rate limit reached, waiting {wait_time:.1f}s")
                 time.sleep(wait_time)
                 self._request_count = 0
@@ -163,6 +167,7 @@ class AIClient:
                     max_tokens=self.config.max_tokens,
                     system=system_prompt,
                     messages=[{"role": "user", "content": user_prompt}],
+                    timeout=60.0,
                 )
 
                 self._request_count += 1
@@ -192,6 +197,7 @@ class AIClient:
 
                 # Check for rate limit errors
                 if "rate" in error_msg or "429" in error_msg:
+                    _console.print(f"[yellow]Rate limited, waiting {delay:.0f}s before retry...[/yellow]")
                     logger.warning(f"Rate limited, waiting {delay}s before retry")
                     time.sleep(delay)
                     delay *= 2
@@ -199,6 +205,7 @@ class AIClient:
 
                 # Check for overloaded errors
                 if "overloaded" in error_msg or "529" in error_msg:
+                    _console.print(f"[yellow]API overloaded, waiting {delay:.0f}s before retry...[/yellow]")
                     logger.warning(f"API overloaded, waiting {delay}s before retry")
                     time.sleep(delay)
                     delay *= 2
@@ -206,6 +213,7 @@ class AIClient:
 
                 # For other errors, retry with backoff
                 if attempt < self.config.retry_attempts - 1:
+                    _console.print(f"[yellow]Request failed, retrying in {delay:.0f}s...[/yellow]")
                     logger.warning(f"Request failed: {e}, retrying in {delay}s")
                     time.sleep(delay)
                     delay *= 2

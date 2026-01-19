@@ -680,10 +680,32 @@ def run_ai_categorization(
     # Run AI categorization
     if do_categorize and uncategorized_count > 0:
         console_instance.print("\n[bold green]Running AI categorization...[/bold green]")
+        batch_size = 20
+        total_batches = (uncategorized_count + batch_size - 1) // batch_size
+
         try:
-            cat_result = ai_categorizer.categorize_uncategorized(
-                transactions, use_batch=True, batch_size=20
-            )
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+                console=console_instance,
+            ) as progress:
+                task = progress.add_task(
+                    f"Processing {uncategorized_count} transactions...",
+                    total=total_batches
+                )
+
+                def on_progress(current_batch: int, _total: int) -> None:
+                    progress.update(task, completed=current_batch)
+
+                cat_result = ai_categorizer.categorize_uncategorized(
+                    transactions,
+                    use_batch=True,
+                    batch_size=batch_size,
+                    progress_callback=on_progress,
+                )
+
             console_instance.print(
                 f"  Categorized: {cat_result.succeeded}, Failed: {cat_result.failed}"
             )
