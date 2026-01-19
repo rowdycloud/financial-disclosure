@@ -1,6 +1,5 @@
 """Report data generation for financial consolidation output."""
 
-from datetime import date
 from decimal import Decimal
 
 from financial_consolidator.config import Config
@@ -22,8 +21,8 @@ def generate_pl_summary(transactions: list[Transaction], config: Config) -> PLSu
     """
     if not transactions:
         return PLSummary(
-            period_start=date.today(),
-            period_end=date.today(),
+            period_start=None,
+            period_end=None,
             accounts=[],
         )
 

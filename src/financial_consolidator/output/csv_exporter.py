@@ -78,25 +78,22 @@ class CSVExporter:
         Returns:
             List of paths to created CSV files.
         """
-        # Get base name without extension
         base_dir = base_path.parent
-        base_name = base_path.stem
-
         base_dir.mkdir(parents=True, exist_ok=True)
 
         created_files: list[Path] = []
 
         # Export each sheet type
         files = [
-            self._export_pl_summary(base_dir, base_name, pl_summary),
-            self._export_all_transactions(base_dir, base_name, transactions),
-            self._export_category_analysis(base_dir, base_name, transactions),
-            self._export_anomalies(base_dir, base_name, transactions, date_gaps or []),
+            self._export_pl_summary(base_dir, pl_summary),
+            self._export_all_transactions(base_dir, transactions),
+            self._export_category_analysis(base_dir, transactions),
+            self._export_anomalies(base_dir, transactions, date_gaps or []),
         ]
         created_files.extend(f for f in files if f)
 
         # Export per-account files
-        account_files = self._export_account_sheets(base_dir, base_name, transactions)
+        account_files = self._export_account_sheets(base_dir, transactions)
         created_files.extend(account_files)
 
         logger.info(f"Exported {len(created_files)} CSV files")
@@ -105,14 +102,12 @@ class CSVExporter:
     def _export_pl_summary(
         self,
         base_dir: Path,
-        base_name: str,
         pl_summary: PLSummary,
     ) -> Path:
         """Export P&L Summary to CSV.
 
         Args:
             base_dir: Output directory.
-            base_name: Base filename.
             pl_summary: Pre-computed P&L summary data.
 
         Returns:
@@ -160,14 +155,12 @@ class CSVExporter:
     def _export_all_transactions(
         self,
         base_dir: Path,
-        base_name: str,
         transactions: list[Transaction],
     ) -> Path:
         """Export Master List to CSV.
 
         Args:
             base_dir: Output directory.
-            base_name: Base filename.
             transactions: Transaction data.
 
         Returns:
@@ -209,14 +202,12 @@ class CSVExporter:
     def _export_account_sheets(
         self,
         base_dir: Path,
-        base_name: str,
         transactions: list[Transaction],
     ) -> list[Path]:
         """Export per-account transaction sheets.
 
         Args:
             base_dir: Output directory.
-            base_name: Base filename.
             transactions: Transaction data.
 
         Returns:
@@ -259,14 +250,12 @@ class CSVExporter:
     def _export_category_analysis(
         self,
         base_dir: Path,
-        base_name: str,
         transactions: list[Transaction],
     ) -> Path:
         """Export Category Analysis to CSV.
 
         Args:
             base_dir: Output directory.
-            base_name: Base filename.
             transactions: Transaction data.
 
         Returns:
@@ -314,7 +303,6 @@ class CSVExporter:
     def _export_anomalies(
         self,
         base_dir: Path,
-        base_name: str,
         transactions: list[Transaction],
         date_gaps: list[dict[str, object]],
     ) -> Path:
@@ -322,7 +310,6 @@ class CSVExporter:
 
         Args:
             base_dir: Output directory.
-            base_name: Base filename.
             transactions: Transaction data.
             date_gaps: Date gap anomalies.
 
