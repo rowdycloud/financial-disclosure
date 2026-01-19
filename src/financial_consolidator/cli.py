@@ -584,7 +584,8 @@ def main() -> int:
         task = progress.add_task("Parsing files...", total=len(files_to_parse))
 
         for file_path in files_to_parse:
-            progress.update(task, advance=1, description=f"Parsing {file_path.name}...")
+            progress.console.print(f"  Parsing {file_path.name}")
+            progress.update(task, advance=1)
             account = file_account_map[file_path]
 
             # Parse file
@@ -649,31 +650,31 @@ def main() -> int:
         with create_progress() as progress:
             if is_csv_output:
                 # CSV is primary output
-                task = progress.add_task("Writing CSV files...", total=None)
+                task = progress.add_task("Writing CSV files...", total=1)
                 csv_exporter = CSVExporter(config)
                 csv_exporter.export(args.output, all_transactions, date_gaps, pl_summary)
-                progress.update(task, completed=True)
+                progress.update(task, advance=1)
 
                 # Also write Excel if --xlsx flag is provided
                 if args.xlsx:
-                    task = progress.add_task("Writing Excel output...", total=None)
+                    task = progress.add_task("Writing Excel output...", total=1)
                     excel_writer = ExcelWriter(config)
                     xlsx_path = args.output.with_suffix(".xlsx")
                     excel_writer.write(xlsx_path, all_transactions, date_gaps, pl_summary)
-                    progress.update(task, completed=True)
+                    progress.update(task, advance=1)
             else:
                 # Excel is primary output (legacy behavior for .xlsx extension)
-                task = progress.add_task("Writing Excel output...", total=None)
+                task = progress.add_task("Writing Excel output...", total=1)
                 excel_writer = ExcelWriter(config)
                 excel_writer.write(args.output, all_transactions, date_gaps, pl_summary)
-                progress.update(task, completed=True)
+                progress.update(task, advance=1)
 
                 # Also write CSV if --csv flag is provided
                 if args.csv:
-                    task = progress.add_task("Writing CSV files...", total=None)
+                    task = progress.add_task("Writing CSV files...", total=1)
                     csv_exporter = CSVExporter(config)
                     csv_exporter.export(args.output, all_transactions, date_gaps, pl_summary)
-                    progress.update(task, completed=True)
+                    progress.update(task, advance=1)
 
         if is_csv_output:
             console.print(f"\n[green]CSV files written to {args.output.parent}[/green]")
