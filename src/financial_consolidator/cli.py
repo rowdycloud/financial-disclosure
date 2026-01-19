@@ -12,6 +12,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
 from financial_consolidator import __version__
 from financial_consolidator.config import Config, load_config, save_accounts
 from financial_consolidator.models.account import Account, AccountType
+from financial_consolidator.processing.report_generator import generate_pl_summary
 from financial_consolidator.utils.logging_config import setup_logging, get_logger
 
 console = Console()
@@ -180,10 +181,10 @@ def generate_default_output_path() -> Path:
     """Generate default output path with timestamp.
 
     Returns:
-        Path with format analysis/analysis_YYYYMMDD_HHMMSS.csv
+        Path with format analysis/YYYYMMDD_HHMMSS/analysis.csv
     """
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return Path(f"analysis/analysis_{timestamp}.csv")
+    return Path(f"analysis/{timestamp}/analysis.csv")
 
 
 def prompt_for_account(filename: str, config: Config) -> Optional[Account]:
@@ -579,6 +580,9 @@ def main() -> int:
         anomaly_detector.detect_anomalies(all_transactions)
         date_gaps = anomaly_detector.get_date_gaps(all_transactions)
 
+    # Generate P&L summary (shared data for both CSV and Excel exporters)
+    pl_summary = generate_pl_summary(all_transactions, config)
+
     # Calculate statistics
     categorized = sum(1 for t in all_transactions if not t.is_uncategorized)
     uncategorized = sum(1 for t in all_transactions if t.is_uncategorized)
@@ -596,7 +600,7 @@ def main() -> int:
                 # CSV is primary output
                 task = progress.add_task("Writing CSV files...", total=None)
                 csv_exporter = CSVExporter(config)
-                csv_exporter.export(args.output, all_transactions, date_gaps)
+                csv_exporter.export(args.output, all_transactions, date_gaps, pl_summary)
                 progress.update(task, completed=True)
 
                 # Also write Excel if --xlsx flag is provided
@@ -604,20 +608,20 @@ def main() -> int:
                     task = progress.add_task("Writing Excel output...", total=None)
                     excel_writer = ExcelWriter(config)
                     xlsx_path = args.output.with_suffix(".xlsx")
-                    excel_writer.write(xlsx_path, all_transactions, date_gaps)
+                    excel_writer.write(xlsx_path, all_transactions, date_gaps, pl_summary)
                     progress.update(task, completed=True)
             else:
                 # Excel is primary output (legacy behavior for .xlsx extension)
                 task = progress.add_task("Writing Excel output...", total=None)
                 excel_writer = ExcelWriter(config)
-                excel_writer.write(args.output, all_transactions, date_gaps)
+                excel_writer.write(args.output, all_transactions, date_gaps, pl_summary)
                 progress.update(task, completed=True)
 
                 # Also write CSV if --csv flag is provided
                 if args.csv:
                     task = progress.add_task("Writing CSV files...", total=None)
                     csv_exporter = CSVExporter(config)
-                    csv_exporter.export(args.output, all_transactions, date_gaps)
+                    csv_exporter.export(args.output, all_transactions, date_gaps, pl_summary)
                     progress.update(task, completed=True)
 
         if is_csv_output:

@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Optional
 
 from financial_consolidator.config import Config
+from financial_consolidator.models.report import PLSummary
 from financial_consolidator.models.transaction import Transaction
 from financial_consolidator.utils.logging_config import get_logger
 from financial_consolidator.utils.sanitize import sanitize_for_csv
@@ -67,7 +68,8 @@ class ExcelWriter:
         self,
         output_path: Path,
         transactions: list[Transaction],
-        date_gaps: Optional[list[dict[str, object]]] = None,
+        date_gaps: Optional[list[dict[str, object]]],
+        pl_summary: PLSummary,
     ) -> None:
         """Write all data to an Excel workbook.
 
@@ -75,6 +77,7 @@ class ExcelWriter:
             output_path: Path for output file.
             transactions: List of processed transactions.
             date_gaps: Optional list of date gap anomalies.
+            pl_summary: Pre-computed P&L summary data.
         """
         logger.info(f"Writing Excel workbook to {output_path}")
 
@@ -84,7 +87,7 @@ class ExcelWriter:
             wb.remove(wb.active)
 
         # Create sheets
-        self._create_pl_summary(wb, transactions)
+        self._create_pl_summary(wb, pl_summary)
         self._create_master_list(wb, transactions)
         self._create_account_sheets(wb, transactions)
         self._create_category_analysis(wb, transactions)
@@ -96,52 +99,27 @@ class ExcelWriter:
         logger.info(f"Excel workbook saved: {output_path}")
 
     def _create_pl_summary(
-        self, wb: "Workbook", transactions: list[Transaction]
+        self, wb: "Workbook", pl_summary: PLSummary
     ) -> None:
         """Create P&L Summary sheet.
 
         Args:
             wb: Workbook to add sheet to.
-            transactions: Transaction data.
+            pl_summary: Pre-computed P&L summary data.
         """
         ws = wb.create_sheet("P&L Summary")
 
-        # Calculate totals by category type
-        income_total = sum(
-            t.amount for t in transactions
-            if t.category and self._get_category_type(t.category) == "income"
-        )
-        expense_total = abs(sum(
-            t.amount for t in transactions
-            if t.category and self._get_category_type(t.category) == "expense"
-        ))
-        transfer_total = sum(
-            t.amount for t in transactions
-            if t.category and self._get_category_type(t.category) == "transfer"
-        )
-
-        # Get category breakdown (using Decimal for financial precision)
-        income_by_cat: dict[str, Decimal] = {}
-        expense_by_cat: dict[str, Decimal] = {}
-        transfer_by_cat: dict[str, Decimal] = {}
-
-        for t in transactions:
-            if not t.category:
-                continue
-            cat_type = self._get_category_type(t.category)
-            cat_name = self._get_category_name(t.category)
-
-            if cat_type == "income":
-                income_by_cat[cat_name] = income_by_cat.get(cat_name, Decimal("0")) + t.amount
-            elif cat_type == "expense":
-                expense_by_cat[cat_name] = expense_by_cat.get(cat_name, Decimal("0")) + abs(t.amount)
-            elif cat_type == "transfer":
-                transfer_by_cat[cat_name] = transfer_by_cat.get(cat_name, Decimal("0")) + t.amount
-
-        # Write headers
         row = 1
-        ws.cell(row=row, column=1, value="P&L Summary")
+
+        # Report metadata header
+        ws.cell(row=row, column=1, value="REPORT SUMMARY")
         ws.cell(row=row, column=1).font = Font(bold=True, size=14)
+        row += 1
+        ws.cell(row=row, column=1, value="Period")
+        ws.cell(row=row, column=2, value=pl_summary.period_display)
+        row += 1
+        ws.cell(row=row, column=1, value="Accounts")
+        ws.cell(row=row, column=2, value=pl_summary.accounts_display)
         row += 2
 
         # Income section
@@ -149,7 +127,7 @@ class ExcelWriter:
         ws.cell(row=row, column=1).font = Font(bold=True)
         row += 1
 
-        for cat, amount in sorted(income_by_cat.items()):
+        for cat, amount in sorted(pl_summary.income_by_category.items()):
             ws.cell(row=row, column=1, value=sanitize_for_csv(cat))
             ws.cell(row=row, column=2, value=float(amount))
             ws.cell(row=row, column=2).number_format = self._money_format()
@@ -157,7 +135,7 @@ class ExcelWriter:
 
         ws.cell(row=row, column=1, value="Total Income")
         ws.cell(row=row, column=1).font = Font(bold=True)
-        ws.cell(row=row, column=2, value=float(income_total))
+        ws.cell(row=row, column=2, value=float(pl_summary.total_income))
         ws.cell(row=row, column=2).font = Font(bold=True)
         ws.cell(row=row, column=2).number_format = self._money_format()
         row += 2
@@ -167,7 +145,7 @@ class ExcelWriter:
         ws.cell(row=row, column=1).font = Font(bold=True)
         row += 1
 
-        for cat, amount in sorted(expense_by_cat.items()):
+        for cat, amount in sorted(pl_summary.expense_by_category.items()):
             ws.cell(row=row, column=1, value=sanitize_for_csv(cat))
             ws.cell(row=row, column=2, value=float(amount))
             ws.cell(row=row, column=2).number_format = self._money_format()
@@ -175,37 +153,39 @@ class ExcelWriter:
 
         ws.cell(row=row, column=1, value="Total Expenses")
         ws.cell(row=row, column=1).font = Font(bold=True)
-        ws.cell(row=row, column=2, value=float(expense_total))
+        ws.cell(row=row, column=2, value=float(pl_summary.total_expenses))
         ws.cell(row=row, column=2).font = Font(bold=True)
         ws.cell(row=row, column=2).number_format = self._money_format()
         row += 2
 
-        # Net income (use Decimal arithmetic to maintain precision, convert to float for Excel)
-        net = income_total - expense_total
+        # Net income
         ws.cell(row=row, column=1, value="NET INCOME")
         ws.cell(row=row, column=1).font = Font(bold=True, size=12)
-        ws.cell(row=row, column=2, value=float(net))
+        ws.cell(row=row, column=2, value=float(pl_summary.net_income))
         ws.cell(row=row, column=2).font = Font(bold=True, size=12)
         ws.cell(row=row, column=2).number_format = self._money_format()
         row += 3
 
         # Transfers memo section (excluded from P&L)
-        ws.cell(row=row, column=1, value="TRANSFERS (Memo - Excluded from P&L)")
+        ws.cell(row=row, column=1, value="TRANSFERS")
         ws.cell(row=row, column=1).font = Font(bold=True, italic=True)
         row += 1
+        ws.cell(row=row, column=1, value="(Money moved between accounts - not counted as income or expense)")
+        ws.cell(row=row, column=1).font = Font(italic=True, color="666666")
+        row += 1
 
-        for cat, amount in sorted(transfer_by_cat.items()):
+        for cat, amount in sorted(pl_summary.transfer_by_category.items()):
             ws.cell(row=row, column=1, value=sanitize_for_csv(cat))
             ws.cell(row=row, column=2, value=float(amount))
             ws.cell(row=row, column=2).number_format = self._money_format()
             row += 1
 
         ws.cell(row=row, column=1, value="Total Transfers")
-        ws.cell(row=row, column=2, value=float(transfer_total))
+        ws.cell(row=row, column=2, value=float(pl_summary.total_transfers))
         ws.cell(row=row, column=2).number_format = self._money_format()
 
         # Adjust column widths
-        ws.column_dimensions["A"].width = 30
+        ws.column_dimensions["A"].width = 60
         ws.column_dimensions["B"].width = 15
 
     def _create_master_list(

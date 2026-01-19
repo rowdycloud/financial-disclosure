@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 from financial_consolidator.config import Config
+from financial_consolidator.models.report import PLSummary
 from financial_consolidator.models.transaction import Transaction
 from financial_consolidator.utils.date_utils import date_to_iso
 from financial_consolidator.utils.logging_config import get_logger
@@ -41,13 +42,12 @@ def _sanitize_filename(name: str) -> str:
 class CSVExporter:
     """Exports financial data to CSV files for Google Sheets import.
 
-    Creates separate CSV files for each sheet type, using the base output
-    name with a suffix:
-    - {base}_pl_summary.csv
-    - {base}_all_transactions.csv
-    - {base}_account_{name}.csv (one per account)
-    - {base}_category_analysis.csv
-    - {base}_anomalies.csv
+    Creates separate CSV files for each sheet type in the output directory:
+    - pl_summary.csv
+    - all_transactions.csv
+    - account_{name}.csv (one per account)
+    - category_analysis.csv
+    - anomalies.csv
     """
 
     def __init__(self, config: Config):
@@ -63,7 +63,8 @@ class CSVExporter:
         self,
         base_path: Path,
         transactions: list[Transaction],
-        date_gaps: Optional[list[dict[str, object]]] = None,
+        date_gaps: Optional[list[dict[str, object]]],
+        pl_summary: PLSummary,
     ) -> list[Path]:
         """Export all data to CSV files.
 
@@ -72,6 +73,7 @@ class CSVExporter:
                        CSV files will use this base with different suffixes.
             transactions: List of processed transactions.
             date_gaps: Optional list of date gap anomalies.
+            pl_summary: Pre-computed P&L summary data.
 
         Returns:
             List of paths to created CSV files.
@@ -86,7 +88,7 @@ class CSVExporter:
 
         # Export each sheet type
         files = [
-            self._export_pl_summary(base_dir, base_name, transactions),
+            self._export_pl_summary(base_dir, base_name, pl_summary),
             self._export_all_transactions(base_dir, base_name, transactions),
             self._export_category_analysis(base_dir, base_name, transactions),
             self._export_anomalies(base_dir, base_name, transactions, date_gaps or []),
@@ -104,83 +106,53 @@ class CSVExporter:
         self,
         base_dir: Path,
         base_name: str,
-        transactions: list[Transaction],
+        pl_summary: PLSummary,
     ) -> Path:
         """Export P&L Summary to CSV.
 
         Args:
             base_dir: Output directory.
             base_name: Base filename.
-            transactions: Transaction data.
+            pl_summary: Pre-computed P&L summary data.
 
         Returns:
             Path to created file.
         """
-        output_path = base_dir / f"{base_name}_pl_summary.csv"
-
-        # Calculate date range and collect accounts
-        if transactions:
-            min_date = min(t.date for t in transactions)
-            max_date = max(t.date for t in transactions)
-            date_range = f"{min_date.strftime('%Y-%m-%d')} to {max_date.strftime('%Y-%m-%d')}"
-            # Get unique account names, sorted
-            account_names = sorted(set(t.account_name for t in transactions))
-        else:
-            date_range = "No transactions"
-            account_names = []
-
-        # Calculate totals
-        income_by_cat: dict[str, float] = {}
-        expense_by_cat: dict[str, float] = {}
-        transfer_by_cat: dict[str, float] = {}
-
-        for t in transactions:
-            if not t.category:
-                continue
-            cat_type = self._get_category_type(t.category)
-            cat_name = self._get_category_name(t.category)
-
-            if cat_type == "income":
-                income_by_cat[cat_name] = income_by_cat.get(cat_name, 0) + float(t.amount)
-            elif cat_type == "expense":
-                expense_by_cat[cat_name] = expense_by_cat.get(cat_name, 0) + abs(float(t.amount))
-            elif cat_type == "transfer":
-                transfer_by_cat[cat_name] = transfer_by_cat.get(cat_name, 0) + float(t.amount)
+        output_path = base_dir / "pl_summary.csv"
 
         with open(output_path, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
 
             # Report metadata header
             writer.writerow(["REPORT SUMMARY", ""])
-            writer.writerow(["Period", date_range])
-            writer.writerow(["Accounts", ", ".join(account_names)])
+            writer.writerow(["Period", pl_summary.period_display])
+            writer.writerow(["Accounts", pl_summary.accounts_display])
             writer.writerow([])
 
             # Income section
             writer.writerow(["INCOME", ""])
-            for cat, amount in sorted(income_by_cat.items()):
-                writer.writerow([sanitize_for_csv(cat), f"{amount:.2f}"])
-            writer.writerow(["Total Income", f"{sum(income_by_cat.values()):.2f}"])
+            for cat, amount in sorted(pl_summary.income_by_category.items()):
+                writer.writerow([sanitize_for_csv(cat), f"{float(amount):.2f}"])
+            writer.writerow(["Total Income", f"{float(pl_summary.total_income):.2f}"])
             writer.writerow([])
 
             # Expense section
             writer.writerow(["EXPENSES", ""])
-            for cat, amount in sorted(expense_by_cat.items()):
-                writer.writerow([sanitize_for_csv(cat), f"{amount:.2f}"])
-            writer.writerow(["Total Expenses", f"{sum(expense_by_cat.values()):.2f}"])
+            for cat, amount in sorted(pl_summary.expense_by_category.items()):
+                writer.writerow([sanitize_for_csv(cat), f"{float(amount):.2f}"])
+            writer.writerow(["Total Expenses", f"{float(pl_summary.total_expenses):.2f}"])
             writer.writerow([])
 
             # Net income
-            net = sum(income_by_cat.values()) - sum(expense_by_cat.values())
-            writer.writerow(["NET INCOME", f"{net:.2f}"])
+            writer.writerow(["NET INCOME", f"{float(pl_summary.net_income):.2f}"])
             writer.writerow([])
 
             # Transfers memo
             writer.writerow(["TRANSFERS", ""])
             writer.writerow(["(Money moved between accounts - not counted as income or expense)", ""])
-            for cat, amount in sorted(transfer_by_cat.items()):
-                writer.writerow([sanitize_for_csv(cat), f"{amount:.2f}"])
-            writer.writerow(["Total Transfers", f"{sum(transfer_by_cat.values()):.2f}"])
+            for cat, amount in sorted(pl_summary.transfer_by_category.items()):
+                writer.writerow([sanitize_for_csv(cat), f"{float(amount):.2f}"])
+            writer.writerow(["Total Transfers", f"{float(pl_summary.total_transfers):.2f}"])
 
         logger.info(f"Exported P&L Summary to {output_path}")
         return output_path
@@ -201,7 +173,7 @@ class CSVExporter:
         Returns:
             Path to created file.
         """
-        output_path = base_dir / f"{base_name}_all_transactions.csv"
+        output_path = base_dir / "all_transactions.csv"
 
         with open(output_path, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
@@ -263,7 +235,7 @@ class CSVExporter:
         for account_id, account_txns in sorted(by_account.items()):
             # Sanitize account ID for filename (handles all platform-unsafe characters)
             safe_id = _sanitize_filename(account_id)
-            output_path = base_dir / f"{base_name}_account_{safe_id}.csv"
+            output_path = base_dir / f"account_{safe_id}.csv"
 
             with open(output_path, "w", newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
@@ -300,7 +272,7 @@ class CSVExporter:
         Returns:
             Path to created file.
         """
-        output_path = base_dir / f"{base_name}_category_analysis.csv"
+        output_path = base_dir / "category_analysis.csv"
 
         # Calculate by category and month
         by_category: dict[str, dict[str, float]] = {}
@@ -357,7 +329,7 @@ class CSVExporter:
         Returns:
             Path to created file.
         """
-        output_path = base_dir / f"{base_name}_anomalies.csv"
+        output_path = base_dir / "anomalies.csv"
 
         with open(output_path, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
