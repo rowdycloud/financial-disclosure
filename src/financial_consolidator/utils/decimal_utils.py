@@ -4,9 +4,7 @@ All monetary calculations must use Decimal to avoid floating-point precision iss
 """
 
 import re
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
-from typing import Optional
-
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 # Currency symbols to strip
 CURRENCY_SYMBOLS = {"$", "€", "£", "¥", "₹", "₽", "₩", "₿"}
@@ -135,7 +133,7 @@ def format_currency(
     return str(abs(rounded))
 
 
-def safe_decimal(value: Optional[object], default: Decimal = Decimal("0")) -> Decimal:
+def safe_decimal(value: object | None, default: Decimal = Decimal("0")) -> Decimal:
     """Safely convert a value to Decimal.
 
     Args:

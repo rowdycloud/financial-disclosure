@@ -1,8 +1,6 @@
 """Excel workbook writer for financial consolidation output."""
 
-from decimal import Decimal
 from pathlib import Path
-from typing import Optional
 
 from financial_consolidator.config import Config
 from financial_consolidator.models.report import PLSummary
@@ -15,7 +13,7 @@ logger = get_logger(__name__)
 # Import openpyxl
 try:
     from openpyxl import Workbook
-    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
     from openpyxl.utils import get_column_letter
     from openpyxl.utils.dataframe import dataframe_to_rows
 
@@ -68,7 +66,7 @@ class ExcelWriter:
         self,
         output_path: Path,
         transactions: list[Transaction],
-        date_gaps: Optional[list[dict[str, object]]],
+        date_gaps: list[dict[str, object]] | None,
         pl_summary: PLSummary,
     ) -> None:
         """Write all data to an Excel workbook.
@@ -199,10 +197,11 @@ class ExcelWriter:
         """
         ws = wb.create_sheet("All Transactions")
 
-        # Headers as specified in plan
+        # Headers with confidence scoring columns
         headers = [
             "Date", "Account", "Description", "Category", "Sub-category",
-            "Amount", "Balance", "Source File", "Duplicate Flag", "Uncategorized Flag"
+            "Amount", "Balance", "Source File", "Duplicate Flag", "Uncategorized Flag",
+            "Confidence", "Matched Pattern", "Category Source", "Confidence Factors"
         ]
 
         # Write headers
@@ -216,6 +215,11 @@ class ExcelWriter:
         sorted_txns = sorted(
             transactions, key=lambda t: (t.date, t.account_name, t.description)
         )
+
+        # Conditional formatting colors for confidence
+        low_conf_fill = PatternFill(start_color="FFCCCC", end_color="FFCCCC", fill_type="solid")  # Red
+        med_conf_fill = PatternFill(start_color="FFFFCC", end_color="FFFFCC", fill_type="solid")  # Yellow
+        high_conf_fill = PatternFill(start_color="CCFFCC", end_color="CCFFCC", fill_type="solid")  # Green
 
         # Write data
         for row, txn in enumerate(sorted_txns, 2):
@@ -240,8 +244,28 @@ class ExcelWriter:
             ws.cell(row=row, column=9, value="Yes" if txn.is_duplicate else "")
             ws.cell(row=row, column=10, value="Yes" if txn.is_uncategorized else "")
 
+            # Confidence scoring columns
+            if not txn.is_uncategorized:
+                conf_cell = ws.cell(row=row, column=11, value=txn.confidence_score)
+                conf_cell.number_format = "0.00"
+
+                # Apply conditional formatting based on confidence
+                if txn.confidence_score < 0.6:
+                    conf_cell.fill = low_conf_fill
+                elif txn.confidence_score < 0.8:
+                    conf_cell.fill = med_conf_fill
+                else:
+                    conf_cell.fill = high_conf_fill
+
+            ws.cell(row=row, column=12, value=sanitize_for_csv(txn.matched_pattern or ""))
+            ws.cell(row=row, column=13, value=sanitize_for_csv(txn.category_source))
+
+            # Format confidence factors as semicolon-separated list
+            factors_str = "; ".join(txn.confidence_factors) if txn.confidence_factors else ""
+            ws.cell(row=row, column=14, value=sanitize_for_csv(factors_str))
+
         # Adjust column widths
-        widths = [12, 25, 40, 20, 20, 12, 12, 25, 12, 15]
+        widths = [12, 25, 40, 20, 20, 12, 12, 25, 12, 15, 10, 20, 12, 40]
         for i, width in enumerate(widths, 1):
             ws.column_dimensions[get_column_letter(i)].width = width
 
@@ -333,9 +357,9 @@ class ExcelWriter:
             )
 
         # Get all months
-        all_months = sorted(set(
+        all_months = sorted({
             month for cat_months in by_category.values() for month in cat_months
-        ))
+        })
 
         if not all_months:
             ws.cell(row=1, column=1, value="No transaction data")
@@ -447,7 +471,7 @@ class ExcelWriter:
         ws.column_dimensions["D"].width = 12
         ws.column_dimensions["E"].width = 40
 
-    def _get_category_type(self, category_id: Optional[str]) -> Optional[str]:
+    def _get_category_type(self, category_id: str | None) -> str | None:
         """Get the type (income/expense/transfer) for a category.
 
         Args:
@@ -465,7 +489,7 @@ class ExcelWriter:
 
         return None
 
-    def _get_category_name(self, category_id: Optional[str]) -> Optional[str]:
+    def _get_category_name(self, category_id: str | None) -> str | None:
         """Get display name for a category.
 
         Args:

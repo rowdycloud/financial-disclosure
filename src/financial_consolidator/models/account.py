@@ -4,7 +4,6 @@ from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 from enum import Enum
-from typing import Optional
 
 
 class AccountType(Enum):
@@ -43,13 +42,13 @@ class Account:
     account_type: AccountType
 
     # Optional identifiers
-    institution: Optional[str] = None
-    account_number_masked: Optional[str] = None
+    institution: str | None = None
+    account_number_masked: str | None = None
 
     # Balance tracking
     opening_balance: Decimal = field(default_factory=lambda: Decimal("0"))
-    opening_balance_date: Optional[date] = None
-    current_balance: Optional[Decimal] = None
+    opening_balance_date: date | None = None
+    current_balance: Decimal | None = None
 
     # File mappings
     source_file_patterns: list[str] = field(default_factory=list)

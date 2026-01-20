@@ -20,6 +20,7 @@ Financial Consolidator processes bank statements and transaction exports from mu
 
 - **Multi-format CSV parsing** - Recognizes Chase, Bank of America, Wells Fargo, Capital One, and other common CSV formats
 - **Flexible categorization** - Priority-ordered rules with regex pattern matching
+- **AI-powered categorization** - Optional Claude AI integration for uncategorized transactions
 - **Fuzzy duplicate detection** - Configurable similarity threshold and date tolerance
 - **Running balance calculation** - Per-account balance tracking
 - **Excel output** - Styled workbooks with multiple analysis sheets
@@ -52,6 +53,8 @@ pip install -e .
 - ofxparse >= 0.21
 - pyyaml >= 6.0
 - rich >= 13.0
+- anthropic >= 0.39.0 (optional, for AI categorization)
+- python-dotenv >= 1.0.0
 
 ## Quick Start
 
@@ -185,6 +188,66 @@ overrides:
     description_pattern: "HOTEL"
 ```
 
+### .env (API keys)
+
+Store sensitive credentials in a `.env` file (gitignored):
+
+```bash
+# Copy the template
+cp .env.example .env
+
+# Edit with your API key
+ANTHROPIC_API_KEY=sk-ant-api03-your-key-here
+```
+
+The `.env` file is automatically loaded at startup.
+
+## AI-Powered Categorization
+
+The tool includes optional AI-powered categorization using Claude to:
+
+1. **Categorize uncategorized transactions** - AI analyzes transaction descriptions and suggests categories
+2. **Validate low-confidence categorizations** - AI reviews rule-based assignments with confidence below threshold
+
+### Setup
+
+1. Get an API key from [Anthropic Console](https://console.anthropic.com/settings/keys)
+2. Create a `.env` file with your key:
+
+   ```bash
+   cp .env.example .env
+   # Edit .env and add your ANTHROPIC_API_KEY
+   ```
+
+### Usage
+
+```bash
+# Enable all AI features
+financial-consolidator -i ./statements --ai
+
+# AI dry-run (show costs without making API calls)
+financial-consolidator -i ./statements --ai --ai-dry-run
+
+# Only categorize uncategorized transactions
+financial-consolidator -i ./statements --ai-categorize
+
+# Only validate low-confidence categorizations
+financial-consolidator -i ./statements --ai-validate
+
+# Set budget limit (default: $5.00)
+financial-consolidator -i ./statements --ai --ai-budget 2.00
+
+# Skip confirmation prompts
+financial-consolidator -i ./statements --ai --skip-ai-confirm
+```
+
+### Cost Control
+
+- Estimated costs are shown before API calls
+- Default budget limit: $5.00 per run
+- Confirmation required before proceeding (unless `--skip-ai-confirm`)
+- Rate limiting: 20 requests/minute
+
 ## CLI Reference
 
 | Option | Description |
@@ -204,6 +267,15 @@ overrides:
 | `--dry-run` | Parse files without generating output |
 | `--validate-only` | Validate configuration files only |
 | `--large-transaction-threshold AMOUNT` | Override large transaction threshold |
+| `--ai` | Enable all AI categorization features |
+| `--ai-validate` | Only validate low-confidence categorizations |
+| `--ai-categorize` | Only categorize uncategorized transactions |
+| `--ai-budget AMOUNT` | Maximum USD to spend on AI (default: $5.00) |
+| `--ai-dry-run` | Show AI costs without making API calls |
+| `--ai-confidence FLOAT` | Validation threshold (default: 0.7) |
+| `--skip-ai-confirm` | Skip AI confirmation prompts |
+| `--export-uncategorized PATH` | Export uncategorized transactions for review |
+| `--export-summary PATH` | Export categorization summary |
 | `-v, --verbose` | Increase verbosity (-v, -vv, -vvv) |
 | `--version` | Show version |
 | `-h, --help` | Show help |

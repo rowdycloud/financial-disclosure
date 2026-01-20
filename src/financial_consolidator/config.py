@@ -4,12 +4,15 @@ from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
-from typing import Optional
 
 import yaml
 
 from financial_consolidator.models.account import Account
-from financial_consolidator.models.category import Category, CategoryRule, ManualOverride
+from financial_consolidator.models.category import (
+    Category,
+    CategoryRule,
+    ManualOverride,
+)
 from financial_consolidator.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -116,6 +119,96 @@ class LoggingConfig:
 
 
 @dataclass
+class AICategorizationConfig:
+    """Configuration for AI-powered categorization.
+
+    Attributes:
+        enabled: Whether AI categorization is enabled.
+        api_key_env: Environment variable name for API key.
+        model: Model to use for AI requests.
+        max_tokens: Maximum tokens for responses.
+        budget_limit: Maximum spend per run in USD.
+        require_confirmation: Whether to require confirmation before spending.
+        validation_threshold: Confidence threshold below which to validate.
+        correction_threshold: AI confidence needed to apply corrections.
+        requests_per_minute: Rate limit for API requests.
+        retry_attempts: Number of retry attempts for failed requests.
+    """
+
+    enabled: bool = False
+    api_key_env: str = "ANTHROPIC_API_KEY"
+    model: str = "claude-sonnet-4-5-20250929"
+    max_tokens: int = 150
+    budget_limit: float = 5.00
+    require_confirmation: bool = True
+    validation_threshold: float = 0.7
+    correction_threshold: float = 0.9
+    requests_per_minute: int = 20
+    retry_attempts: int = 3
+
+    @classmethod
+    def from_dict(cls, data: dict[str, object]) -> "AICategorizationConfig":
+        """Create from dictionary with type safety and range validation."""
+        budget_data = data.get("budget", {})
+        rate_limit_data = data.get("rate_limit", {})
+        validation_data = data.get("validation", {})
+
+        # Parse max_tokens with type safety
+        try:
+            max_tokens = int(data.get("max_tokens", 150))  # type: ignore[arg-type]
+        except (ValueError, TypeError):
+            max_tokens = 150
+
+        # Parse budget_limit with range validation (no negative budgets)
+        try:
+            raw_budget = budget_data.get("max_cost_per_run", 5.00) if isinstance(budget_data, dict) else 5.00
+            budget_limit = max(0.0, float(raw_budget))  # type: ignore[arg-type]
+        except (ValueError, TypeError):
+            budget_limit = 5.00
+
+        # Parse validation_threshold with range validation (clamp to 0-1)
+        try:
+            raw_val_thresh = validation_data.get("confidence_threshold", 0.7) if isinstance(validation_data, dict) else 0.7
+            validation_threshold = max(0.0, min(1.0, float(raw_val_thresh)))  # type: ignore[arg-type]
+        except (ValueError, TypeError):
+            validation_threshold = 0.7
+
+        # Parse correction_threshold with range validation (clamp to 0-1)
+        try:
+            raw_corr_thresh = validation_data.get("correction_threshold", 0.9) if isinstance(validation_data, dict) else 0.9
+            correction_threshold = max(0.0, min(1.0, float(raw_corr_thresh)))  # type: ignore[arg-type]
+        except (ValueError, TypeError):
+            correction_threshold = 0.9
+
+        # Parse requests_per_minute with range validation (at least 1 RPM)
+        try:
+            raw_rpm = rate_limit_data.get("requests_per_minute", 20) if isinstance(rate_limit_data, dict) else 20
+            requests_per_minute = max(1, int(raw_rpm))  # type: ignore[arg-type]
+        except (ValueError, TypeError):
+            requests_per_minute = 20
+
+        # Parse retry_attempts with range validation (no negative retries)
+        try:
+            raw_retries = rate_limit_data.get("retry_attempts", 3) if isinstance(rate_limit_data, dict) else 3
+            retry_attempts = max(0, int(raw_retries))  # type: ignore[arg-type]
+        except (ValueError, TypeError):
+            retry_attempts = 3
+
+        return cls(
+            enabled=bool(data.get("enabled", False)),
+            api_key_env=str(data.get("api_key_env", "ANTHROPIC_API_KEY")),
+            model=str(data.get("model", "claude-sonnet-4-5-20250929")),
+            max_tokens=max_tokens,
+            budget_limit=budget_limit,
+            require_confirmation=bool(budget_data.get("require_confirmation", True) if isinstance(budget_data, dict) else True),
+            validation_threshold=validation_threshold,
+            correction_threshold=correction_threshold,
+            requests_per_minute=requests_per_minute,
+            retry_attempts=retry_attempts,
+        )
+
+
+@dataclass
 class Config:
     """Main configuration container.
 
@@ -128,6 +221,7 @@ class Config:
         anomaly: Anomaly detection configuration.
         output: Output generation configuration.
         logging: Logging configuration.
+        ai: AI categorization configuration.
         start_date: Start date for filtering transactions.
         end_date: End date for filtering transactions.
     """
@@ -140,10 +234,11 @@ class Config:
     anomaly: AnomalyConfig = field(default_factory=AnomalyConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
-    start_date: Optional[date] = None
-    end_date: Optional[date] = None
+    ai: AICategorizationConfig = field(default_factory=AICategorizationConfig)
+    start_date: date | None = None
+    end_date: date | None = None
 
-    def get_account_for_file(self, filename: str) -> Optional[Account]:
+    def get_account_for_file(self, filename: str) -> Account | None:
         """Get the account associated with a filename.
 
         First checks explicit file mappings, then pattern matching.
@@ -175,35 +270,12 @@ class Config:
         """
         self.file_mappings[filename] = account_id
 
-    def get_matching_rules(
-        self,
-        description: str,
-        amount: Decimal,
-        account_id: str,
-    ) -> Optional[CategoryRule]:
-        """Find the first matching category rule.
-
-        Rules are evaluated in priority order (highest first).
-
-        Args:
-            description: Transaction description.
-            amount: Transaction amount.
-            account_id: Account ID.
-
-        Returns:
-            First matching rule, or None.
-        """
-        for rule in self.category_rules:
-            if rule.matches(description, amount, account_id):
-                return rule
-        return None
-
     def get_matching_override(
         self,
         transaction_date: str,
         amount: Decimal,
         description: str,
-    ) -> Optional[ManualOverride]:
+    ) -> ManualOverride | None:
         """Find the first matching manual override.
 
         Overrides are evaluated in priority order (highest first).
@@ -244,30 +316,52 @@ def load_yaml_file(path: Path) -> dict[str, object]:
     return content if content else {}
 
 
-def load_settings(path: Path) -> tuple[AnomalyConfig, OutputConfig, LoggingConfig]:
+def load_settings(
+    path: Path,
+) -> tuple[AnomalyConfig, OutputConfig, LoggingConfig, AICategorizationConfig]:
     """Load settings from settings.yaml.
 
     Args:
         path: Path to settings.yaml.
 
     Returns:
-        Tuple of (AnomalyConfig, OutputConfig, LoggingConfig).
+        Tuple of (AnomalyConfig, OutputConfig, LoggingConfig, AICategorizationConfig).
     """
     data = load_yaml_file(path)
 
     anomaly = AnomalyConfig()
     if "anomaly_detection" in data:
-        anomaly = AnomalyConfig.from_dict(data["anomaly_detection"])  # type: ignore[arg-type]
+        anomaly_data = data["anomaly_detection"]
+        if isinstance(anomaly_data, dict):
+            anomaly = AnomalyConfig.from_dict(anomaly_data)
+        else:
+            logger.warning(f"anomaly_detection must be a dict, got {type(anomaly_data).__name__}")
 
     output = OutputConfig()
     if "output" in data:
-        output = OutputConfig.from_dict(data["output"])  # type: ignore[arg-type]
+        output_data = data["output"]
+        if isinstance(output_data, dict):
+            output = OutputConfig.from_dict(output_data)
+        else:
+            logger.warning(f"output must be a dict, got {type(output_data).__name__}")
 
     logging_config = LoggingConfig()
     if "logging" in data:
-        logging_config = LoggingConfig.from_dict(data["logging"])  # type: ignore[arg-type]
+        logging_data = data["logging"]
+        if isinstance(logging_data, dict):
+            logging_config = LoggingConfig.from_dict(logging_data)
+        else:
+            logger.warning(f"logging must be a dict, got {type(logging_data).__name__}")
 
-    return anomaly, output, logging_config
+    ai_config = AICategorizationConfig()
+    if "ai_categorization" in data:
+        ai_data = data["ai_categorization"]
+        if isinstance(ai_data, dict):
+            ai_config = AICategorizationConfig.from_dict(ai_data)
+        else:
+            logger.warning(f"ai_categorization must be a dict, got {type(ai_data).__name__}")
+
+    return anomaly, output, logging_config, ai_config
 
 
 def load_accounts(path: Path) -> tuple[dict[str, Account], dict[str, str]]:
@@ -368,11 +462,11 @@ def load_manual_overrides(path: Path) -> list[ManualOverride]:
 
 
 def load_config(
-    settings_path: Optional[Path] = None,
-    accounts_path: Optional[Path] = None,
-    categories_path: Optional[Path] = None,
-    manual_overrides_path: Optional[Path] = None,
-    config_dir: Optional[Path] = None,
+    settings_path: Path | None = None,
+    accounts_path: Path | None = None,
+    categories_path: Path | None = None,
+    manual_overrides_path: Path | None = None,
+    config_dir: Path | None = None,
 ) -> Config:
     """Load complete configuration from all config files.
 
@@ -406,7 +500,9 @@ def load_config(
 
     # Load settings (optional - use defaults if missing)
     if settings_path.exists():
-        config.anomaly, config.output, config.logging = load_settings(settings_path)
+        config.anomaly, config.output, config.logging, config.ai = load_settings(
+            settings_path
+        )
         logger.info(f"Loaded settings from {settings_path}")
     else:
         logger.warning(f"Settings file not found: {settings_path}, using defaults")

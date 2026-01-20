@@ -8,3 +8,7 @@ ofxparse>=0.21,<1.0
 PyYAML>=6.0,<7.0
 rich>=13.0,<14.0
 python-magic>=0.4,<1.0
+
+# AI categorization (optional - only needed if using --ai flag)
+anthropic>=0.39.0
+python-dotenv>=1.0.0

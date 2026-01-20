@@ -1,9 +1,8 @@
 """Transaction categorizer using rules and manual overrides."""
 
-from typing import Optional
 
 from financial_consolidator.config import Config
-from financial_consolidator.models.category import CategoryRule, ManualOverride
+from financial_consolidator.models.category import CategoryRule, ManualOverride, MatchResult
 from financial_consolidator.models.transaction import Transaction
 from financial_consolidator.utils.date_utils import date_to_iso
 from financial_consolidator.utils.logging_config import get_logger
@@ -67,12 +66,14 @@ class Categorizer:
                 category_id=override.category_id,
                 source="manual",
                 subcategory_id=override.subcategory_id,
+                confidence=1.0,
+                confidence_factors=["Manual override"],
             )
             return
 
         # Try rule-based categorization
-        rule = self._find_matching_rule(txn)
-        if rule:
+        rule, match_result = self._find_matching_rule(txn)
+        if rule and match_result:
             # Get category info
             category = self.config.categories.get(rule.category_id)
             subcategory_id = None
@@ -87,25 +88,34 @@ class Categorizer:
                         source="rule",
                         subcategory_id=subcategory_id,
                         rule_id=rule.id,
+                        confidence=match_result.confidence,
+                        confidence_factors=match_result.factors,
+                        matched_pattern=match_result.matched_value,
                     )
                 else:
                     txn.assign_category(
                         category_id=rule.category_id,
                         source="rule",
                         rule_id=rule.id,
+                        confidence=match_result.confidence,
+                        confidence_factors=match_result.factors,
+                        matched_pattern=match_result.matched_value,
                     )
             else:
                 txn.assign_category(
                     category_id=rule.category_id,
                     source="rule",
                     rule_id=rule.id,
+                    confidence=match_result.confidence,
+                    confidence_factors=match_result.factors,
+                    matched_pattern=match_result.matched_value,
                 )
             return
 
         # No match - remains uncategorized
         # is_uncategorized is already True by default
 
-    def _find_matching_override(self, txn: Transaction) -> Optional[ManualOverride]:
+    def _find_matching_override(self, txn: Transaction) -> ManualOverride | None:
         """Find a matching manual override for a transaction.
 
         Args:
@@ -126,24 +136,27 @@ class Categorizer:
 
         return None
 
-    def _find_matching_rule(self, txn: Transaction) -> Optional[CategoryRule]:
+    def _find_matching_rule(
+        self, txn: Transaction
+    ) -> tuple[CategoryRule | None, MatchResult | None]:
         """Find a matching categorization rule for a transaction.
 
         Args:
             txn: Transaction to match.
 
         Returns:
-            Matching CategoryRule or None.
+            Tuple of (matching CategoryRule, MatchResult) or (None, None).
         """
         for rule in self.config.category_rules:
-            if rule.matches(txn.description, txn.amount, txn.account_id):
+            match_result = rule.matches(txn.description, txn.amount, txn.account_id)
+            if match_result:
                 logger.debug(
                     f"Rule {rule.id} matched for {txn.description}: "
-                    f"{rule.category_id}"
+                    f"{rule.category_id} (confidence: {match_result.confidence:.2f})"
                 )
-                return rule
+                return rule, match_result
 
-        return None
+        return None, None
 
     def get_category_summary(
         self, transactions: list[Transaction]

@@ -4,16 +4,19 @@ import argparse
 import sys
 from datetime import date, datetime
 from pathlib import Path
-from typing import Optional
 
+from dotenv import load_dotenv
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
+from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
 
 from financial_consolidator import __version__
 from financial_consolidator.config import Config, load_config, save_accounts
 from financial_consolidator.models.account import Account, AccountType
 from financial_consolidator.processing.report_generator import generate_pl_summary
-from financial_consolidator.utils.logging_config import setup_logging, get_logger
+from financial_consolidator.utils.logging_config import get_logger, setup_logging
+
+# Load environment variables from .env file (if it exists)
+load_dotenv()
 
 console = Console()
 logger = get_logger(__name__)
@@ -27,7 +30,10 @@ def create_parser() -> argparse.ArgumentParser:
     """
     parser = argparse.ArgumentParser(
         prog="financial-consolidator",
-        description="Consolidate financial transactions from multiple file formats for forensic analysis",
+        description=(
+            "Consolidate financial transactions from multiple file formats "
+            "for forensic analysis"
+        ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -157,6 +163,62 @@ Examples:
         help="Validate configuration files only",
     )
 
+    # AI categorization arguments
+    ai_group = parser.add_argument_group("AI Categorization")
+    ai_group.add_argument(
+        "--ai",
+        action="store_true",
+        help="Enable all AI features (validation + categorization)",
+    )
+    ai_group.add_argument(
+        "--ai-validate",
+        action="store_true",
+        help="Validate low-confidence rule-based categorizations with AI",
+    )
+    ai_group.add_argument(
+        "--ai-categorize",
+        action="store_true",
+        help="Use AI to categorize uncategorized transactions",
+    )
+    ai_group.add_argument(
+        "--ai-budget",
+        type=float,
+        default=None,
+        help="Maximum AI spend per run in USD (default: from config or $5.00)",
+    )
+    ai_group.add_argument(
+        "--ai-dry-run",
+        action="store_true",
+        help="Show AI cost estimates without making API calls",
+    )
+    ai_group.add_argument(
+        "--ai-confidence",
+        type=float,
+        default=None,
+        help="Confidence threshold for AI validation (default: 0.7)",
+    )
+    ai_group.add_argument(
+        "--skip-ai-confirm",
+        action="store_true",
+        help="Skip confirmation prompts for AI spending",
+    )
+
+    # Additional export options
+    parser.add_argument(
+        "--export-uncategorized",
+        type=Path,
+        default=None,
+        metavar="FILE",
+        help="Export uncategorized transactions for review",
+    )
+    parser.add_argument(
+        "--export-summary",
+        type=Path,
+        default=None,
+        metavar="FILE",
+        help="Export categorization summary statistics",
+    )
+
     return parser
 
 
@@ -187,7 +249,42 @@ def generate_default_output_path() -> Path:
     return Path(f"analysis/{timestamp}/analysis.csv")
 
 
-def prompt_for_account(filename: str, config: Config) -> Optional[Account]:
+def validate_output_path(path: Path, base_dir: Path | None = None) -> Path:
+    """Validate that output path is within allowed directory.
+
+    Prevents path traversal attacks by ensuring the resolved path
+    is within the base directory (defaults to current working directory).
+
+    Args:
+        path: The path to validate.
+        base_dir: Base directory to constrain paths within (default: cwd).
+
+    Returns:
+        The resolved, validated path.
+
+    Raises:
+        ValueError: If the path escapes the allowed directory.
+    """
+    if base_dir is None:
+        base_dir = Path.cwd()
+
+    # Resolve both paths to absolute, normalized form
+    resolved_base = base_dir.resolve()
+    resolved_path = (base_dir / path).resolve()
+
+    # Check if resolved path is within base directory
+    try:
+        resolved_path.relative_to(resolved_base)
+    except ValueError:
+        raise ValueError(
+            f"Invalid path: '{path}' escapes the allowed directory. "
+            f"Paths must be within '{resolved_base}'"
+        ) from None
+
+    return resolved_path
+
+
+def prompt_for_account(filename: str, config: Config) -> Account | None:
     """Prompt user to map a file to an account.
 
     Args:
@@ -237,7 +334,10 @@ def prompt_for_account(filename: str, config: Config) -> Optional[Account]:
 
         # Check for duplicate ID
         if account_id in config.accounts:
-            console.print(f"[red]Account ID '{account_id}' already exists. Try a different name.[/red]")
+            console.print(
+                f"[red]Account ID '{account_id}' already exists. "
+                "Try a different name.[/red]"
+            )
             continue
 
         # Prompt for account type
@@ -305,7 +405,8 @@ def prompt_prune_stale_mappings(stale_filenames: list[str], config: Config) -> b
     if len(stale_filenames) > 10:
         console.print(f"  ... and {len(stale_filenames) - 10} more")
 
-    response = console.input("\n[bold]Remove stale mappings from accounts.yaml? [Y/n]:[/bold] ").strip().lower()
+    prompt = "\n[bold]Remove stale mappings from accounts.yaml? [Y/n]:[/bold] "
+    response = console.input(prompt).strip().lower()
 
     if response in ("y", ""):
         for filename in stale_filenames:
@@ -364,7 +465,7 @@ def validate_config(args: argparse.Namespace) -> int:
             categories_path=args.categories,
             config_dir=config_dir,
         )
-        console.print(f"\n[green]✓[/green] Configuration loaded successfully")
+        console.print("\n[green]✓[/green] Configuration loaded successfully")
         console.print(f"  - {len(config.accounts)} accounts")
         console.print(f"  - {len(config.categories)} categories")
         console.print(f"  - {len(config.category_rules)} rules")
@@ -380,8 +481,8 @@ def validate_config(args: argparse.Namespace) -> int:
 
     if errors:
         console.print("\n[red]Errors:[/red]")
-        for e in errors:
-            console.print(f"  - {e}")
+        for err in errors:
+            console.print(f"  - {err}")
         return 1
 
     console.print("\n[green]Configuration is valid.[/green]")
@@ -451,6 +552,190 @@ def create_progress() -> Progress:
     )
 
 
+def run_ai_categorization(
+    args: argparse.Namespace,
+    config: Config,
+    transactions: list,
+    console_instance: Console,
+) -> dict[str, object]:
+    """Run AI-powered categorization if enabled.
+
+    Args:
+        args: Parsed command-line arguments.
+        config: Application configuration.
+        transactions: List of transactions to process.
+        console_instance: Rich console for output.
+
+    Returns:
+        Dictionary of AI usage statistics.
+    """
+    from financial_consolidator.processing.ai import (
+        AICategorizer,
+        APIKeyNotFoundError,
+        BudgetExceededError,
+    )
+
+    # Determine which AI features to run
+    do_validate = args.ai or args.ai_validate
+    do_categorize = args.ai or args.ai_categorize
+
+    # Get AI settings
+    budget_limit = args.ai_budget or config.ai.budget_limit
+    confidence_threshold = args.ai_confidence or config.ai.validation_threshold
+
+    console_instance.print("\n[bold]AI Categorization[/bold]")
+
+    # Create AI categorizer
+    try:
+        ai_categorizer = AICategorizer.create(
+            config=config,
+            api_key_env=config.ai.api_key_env,
+            model=config.ai.model,
+            budget_limit=budget_limit,
+            validation_threshold=confidence_threshold,
+        )
+    except Exception as e:
+        console_instance.print(f"[red]Failed to initialize AI: {e}[/red]")
+        return {}
+
+    if not ai_categorizer.is_available:
+        console_instance.print(
+            f"[yellow]AI not available - set {config.ai.api_key_env} environment variable[/yellow]"
+        )
+        return {}
+
+    # Count transactions for each operation
+    low_conf_count = sum(
+        1 for t in transactions
+        if t.category and not t.is_uncategorized and t.confidence_score < confidence_threshold
+    )
+    uncategorized_count = sum(1 for t in transactions if t.is_uncategorized)
+
+    # Estimate costs
+    total_estimate = 0.0
+    if do_validate and low_conf_count > 0:
+        low_conf_txns = [
+            t for t in transactions
+            if t.category and not t.is_uncategorized
+            and t.confidence_score < confidence_threshold
+        ]
+        val_estimate = ai_categorizer.estimate_validation_cost(low_conf_txns)
+        console_instance.print(
+            f"  Validation: {low_conf_count} transactions, ~${val_estimate.estimated_cost:.4f}"
+        )
+        total_estimate += val_estimate.estimated_cost
+
+    if do_categorize and uncategorized_count > 0:
+        cat_estimate = ai_categorizer.estimate_categorization_cost(
+            [t for t in transactions if t.is_uncategorized]
+        )
+        cost = cat_estimate.estimated_cost
+        console_instance.print(
+            f"  Categorization: {uncategorized_count} transactions, ~${cost:.4f}"
+        )
+        total_estimate += cat_estimate.estimated_cost
+
+    if total_estimate == 0:
+        console_instance.print("[dim]No transactions need AI processing[/dim]")
+        return {}
+
+    console_instance.print(f"  [bold]Total estimated cost: ${total_estimate:.4f}[/bold]")
+    console_instance.print(f"  Budget limit: ${budget_limit:.2f}")
+
+    # Dry run - just show estimates
+    if args.ai_dry_run:
+        console_instance.print("[yellow]Dry run - no API calls made[/yellow]")
+        return {"dry_run": True, "estimated_cost": total_estimate}
+
+    # Confirm with user (unless skipped)
+    if config.ai.require_confirmation and not args.skip_ai_confirm:
+        response = console_instance.input(
+            f"\n[bold]Proceed with AI processing (~${total_estimate:.4f})? [Y/n]:[/bold] "
+        ).strip().lower()
+        if response not in ("y", "yes", ""):
+            console_instance.print("[yellow]AI processing cancelled[/yellow]")
+            return {"cancelled": True}
+
+    # Run AI validation
+    if do_validate and low_conf_count > 0:
+        console_instance.print("\n[bold green]Running AI validation...[/bold green]")
+        try:
+            val_results = ai_categorizer.validate_low_confidence(
+                transactions, apply_corrections=True
+            )
+            validated = sum(1 for r in val_results if r.status.value == "validated")
+            corrected = sum(1 for r in val_results if r.status.value == "corrected")
+            console_instance.print(
+                f"  Validated: {validated}, Corrected: {corrected}, "
+                f"Uncertain: {len(val_results) - validated - corrected}"
+            )
+        except BudgetExceededError as e:
+            console_instance.print(f"[red]Budget exceeded: {e}[/red]")
+        except APIKeyNotFoundError as e:
+            console_instance.print(f"[red]API key error: {e}[/red]")
+        except Exception as e:
+            console_instance.print(f"[red]Validation error: {e}[/red]")
+            logger.exception("AI validation failed")
+
+    # Run AI categorization
+    if do_categorize and uncategorized_count > 0:
+        console_instance.print("\n[bold green]Running AI categorization...[/bold green]")
+        batch_size = 20
+        total_batches = (uncategorized_count + batch_size - 1) // batch_size
+
+        try:
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+                console=console_instance,
+            ) as progress:
+                task = progress.add_task(
+                    f"Processing {uncategorized_count} transactions...",
+                    total=total_batches
+                )
+
+                def on_progress(current_batch: int, _total: int) -> None:
+                    progress.update(task, completed=current_batch)
+
+                cat_result = ai_categorizer.categorize_uncategorized(
+                    transactions,
+                    use_batch=True,
+                    batch_size=batch_size,
+                    progress_callback=on_progress,
+                )
+
+            console_instance.print(
+                f"  Categorized: {cat_result.succeeded}, Failed: {cat_result.failed}"
+            )
+            if cat_result.errors:
+                for err in cat_result.errors[:3]:
+                    console_instance.print(f"  [dim]Error: {err}[/dim]")
+        except BudgetExceededError as e:
+            console_instance.print(f"[red]Budget exceeded: {e}[/red]")
+        except APIKeyNotFoundError as e:
+            console_instance.print(f"[red]API key error: {e}[/red]")
+        except Exception as e:
+            console_instance.print(f"[red]Categorization error: {e}[/red]")
+            logger.exception("AI categorization failed")
+
+    # Get usage stats
+    stats = ai_categorizer.client.usage_stats
+    console_instance.print(
+        f"\n  [bold]AI Usage:[/bold] {stats.total_requests} requests, "
+        f"${stats.total_cost:.4f} spent"
+    )
+
+    return {
+        "total_requests": stats.total_requests,
+        "total_tokens": stats.total_input_tokens + stats.total_output_tokens,
+        "total_cost": stats.total_cost,
+        "validations_performed": stats.validations_performed,
+        "categorizations_performed": stats.categorizations_performed,
+    }
+
+
 def main() -> int:
     """Main entry point for the CLI.
 
@@ -517,16 +802,16 @@ def main() -> int:
         console.print(f"Date range: {config.start_date} to {config.end_date or 'present'}")
 
     # Import processing and output modules
+    from financial_consolidator.models.transaction import Transaction
+    from financial_consolidator.output import CSVExporter, ExcelWriter
     from financial_consolidator.parsers import FileDetector, ParseError
     from financial_consolidator.processing import (
-        Normalizer,
+        AnomalyDetector,
+        BalanceCalculator,
         Categorizer,
         Deduplicator,
-        BalanceCalculator,
-        AnomalyDetector,
+        Normalizer,
     )
-    from financial_consolidator.output import ExcelWriter, CSVExporter
-    from financial_consolidator.models.transaction import Transaction
 
     # Initialize components
     detector = FileDetector(strict=args.strict)
@@ -622,6 +907,12 @@ def main() -> int:
     with console.status("[bold green]Categorizing transactions..."):
         categorizer.categorize(all_transactions)
 
+    # AI categorization (if enabled)
+    ai_stats: dict[str, object] = {}
+    use_ai = args.ai or args.ai_validate or args.ai_categorize
+    if use_ai:
+        ai_stats = run_ai_categorization(args, config, all_transactions, console)
+
     with console.status("[bold green]Detecting duplicates..."):
         deduplicator.find_duplicates(all_transactions)
 
@@ -679,13 +970,44 @@ def main() -> int:
         if is_csv_output:
             console.print(f"\n[green]CSV files written to {args.output.parent}[/green]")
             if args.xlsx:
-                console.print(f"[green]Excel file written to {args.output.with_suffix('.xlsx')}[/green]")
+                xlsx_out = args.output.with_suffix(".xlsx")
+                console.print(f"[green]Excel file written to {xlsx_out}[/green]")
         else:
             console.print(f"\n[green]Output written to {args.output}[/green]")
             if args.csv:
                 console.print(f"[green]CSV files written to {args.output.parent}[/green]")
     else:
         console.print("\n[yellow]Dry run - no output generated[/yellow]")
+
+    # Handle additional exports (these work even in dry-run mode)
+    if args.export_uncategorized:
+        try:
+            validated_path = validate_output_path(args.export_uncategorized)
+            csv_exporter = CSVExporter(config)
+            validated_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path = csv_exporter.export_uncategorized_for_review(
+                validated_path.parent,
+                all_transactions,
+            )
+            console.print(f"[green]Uncategorized transactions exported to {output_path}[/green]")
+        except ValueError as e:
+            console.print(f"[red]Error: {e}[/red]")
+            return 1
+
+    if args.export_summary:
+        try:
+            validated_path = validate_output_path(args.export_summary)
+            csv_exporter = CSVExporter(config)
+            validated_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path = csv_exporter.export_categorization_summary(
+                validated_path.parent,
+                all_transactions,
+                ai_stats=ai_stats if ai_stats else None,
+            )
+            console.print(f"[green]Categorization summary exported to {output_path}[/green]")
+        except ValueError as e:
+            console.print(f"[red]Error: {e}[/red]")
+            return 1
 
     # Display summary
     display_summary(

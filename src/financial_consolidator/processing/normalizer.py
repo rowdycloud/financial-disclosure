@@ -1,9 +1,6 @@
 """Transaction normalizer for converting raw transactions to normalized format."""
 
 import uuid
-from decimal import Decimal
-from pathlib import Path
-from typing import Optional
 
 from financial_consolidator.config import Config
 from financial_consolidator.models.account import Account
@@ -92,7 +89,7 @@ class Normalizer:
         self,
         raw: RawTransaction,
         account: Account,
-    ) -> Optional[Transaction]:
+    ) -> Transaction | None:
         """Normalize a single raw transaction.
 
         Args:

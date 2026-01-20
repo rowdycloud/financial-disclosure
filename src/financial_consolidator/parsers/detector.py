@@ -1,7 +1,6 @@
 """File format auto-detection and file discovery module."""
 
 from pathlib import Path
-from typing import Optional
 
 from financial_consolidator.models.transaction import RawTransaction
 from financial_consolidator.parsers.base import BaseParser, ParseError
@@ -94,7 +93,7 @@ class FileDetector:
         logger.info(f"Discovered {len(files)} potential files in {directory}")
         return files
 
-    def detect_parser(self, file_path: Path) -> Optional[BaseParser]:
+    def detect_parser(self, file_path: Path) -> BaseParser | None:
         """Detect the appropriate parser for a file.
 
         Tries each parser in order and returns the first one
@@ -121,7 +120,7 @@ class FileDetector:
         logger.warning(f"No parser found for {file_path.name}")
         return None
 
-    def detect_institution(self, file_path: Path) -> Optional[str]:
+    def detect_institution(self, file_path: Path) -> str | None:
         """Detect the financial institution from a file.
 
         Args:
@@ -200,7 +199,7 @@ class FileDetector:
                     raise ParseError(error_msg, file_path)
                 errors.append(error_msg)
                 logger.warning(f"Skipping {file_path.name}: {e}")
-            except FileNotFoundError as e:
+            except FileNotFoundError:
                 error_msg = f"{file_path.name}: File not found"
                 if strict:
                     raise
@@ -222,7 +221,7 @@ class FileDetector:
 
 
 # Singleton instance for convenience
-_detector: Optional[FileDetector] = None
+_detector: FileDetector | None = None
 
 
 def get_detector(strict: bool = False) -> FileDetector:
@@ -242,7 +241,7 @@ def get_detector(strict: bool = False) -> FileDetector:
     return _detector
 
 
-def detect_parser(file_path: Path) -> Optional[BaseParser]:
+def detect_parser(file_path: Path) -> BaseParser | None:
     """Convenience function to detect parser for a file.
 
     Args:
