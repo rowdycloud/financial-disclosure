@@ -157,6 +157,39 @@ class TestAIClient:
         with pytest.raises(ValueError, match="No JSON found"):
             client.parse_json_response("This is not JSON at all")
 
+    def test_parse_json_response_with_markdown_fences(self) -> None:
+        """Test parsing JSON wrapped in markdown code fences."""
+        config = AIClientConfig(
+            api_key_env="ANTHROPIC_API_KEY",
+            model="claude-sonnet-4-5-20250929",
+        )
+        client = AIClient(config=config)
+        response = '```json\n{"category_id": "dining", "confidence": 0.9}\n```'
+        result = client.parse_json_response(response)
+        assert result == {"category_id": "dining", "confidence": 0.9}
+
+    def test_parse_json_response_with_markdown_fences_list(self) -> None:
+        """Test parsing JSON array wrapped in markdown code fences."""
+        config = AIClientConfig(
+            api_key_env="ANTHROPIC_API_KEY",
+            model="claude-sonnet-4-5-20250929",
+        )
+        client = AIClient(config=config)
+        response = '```json\n[{"index": 1, "category_id": "dining"}]\n```'
+        result = client.parse_json_response(response)
+        assert result == [{"index": 1, "category_id": "dining"}]
+
+    def test_parse_json_response_with_bare_markdown_fences(self) -> None:
+        """Test parsing JSON wrapped in bare markdown code fences (no json tag)."""
+        config = AIClientConfig(
+            api_key_env="ANTHROPIC_API_KEY",
+            model="claude-sonnet-4-5-20250929",
+        )
+        client = AIClient(config=config)
+        response = '```\n{"category_id": "shopping"}\n```'
+        result = client.parse_json_response(response)
+        assert result == {"category_id": "shopping"}
+
 
 class TestAICategorizationResult:
     """Tests for AICategorizationResult dataclass."""

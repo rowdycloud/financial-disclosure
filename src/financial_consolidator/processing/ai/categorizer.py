@@ -6,6 +6,11 @@ from dataclasses import dataclass
 from financial_consolidator.config import Config
 from financial_consolidator.models.transaction import Transaction
 from financial_consolidator.processing.ai.client import AIClient, AIClientConfig
+from financial_consolidator.processing.ai.cost_estimator import (
+    MAX_OUTPUT_TOKENS_LIMIT,
+    MAX_TOKENS_BUFFER,
+    MAX_TOKENS_PER_BATCH_ITEM,
+)
 from financial_consolidator.processing.ai.models import (
     AICategorizationResult,
     AIValidationResult,
@@ -310,8 +315,13 @@ class AICategorizer:
             prompt = build_batch_categorization_prompt(txn_data, categories)
 
             try:
+                # Calculate max tokens with upper bound to avoid API limits
+                batch_max_tokens = min(
+                    len(batch) * MAX_TOKENS_PER_BATCH_ITEM + MAX_TOKENS_BUFFER,
+                    MAX_OUTPUT_TOKENS_LIMIT,
+                )
                 response, input_tokens, output_tokens = self.client.send_message(
-                    CATEGORIZATION_SYSTEM_PROMPT, prompt
+                    CATEGORIZATION_SYSTEM_PROMPT, prompt, max_tokens=batch_max_tokens
                 )
                 cost = self.client.cost_estimator.estimate_cost(input_tokens, output_tokens)
                 result.total_tokens += input_tokens + output_tokens

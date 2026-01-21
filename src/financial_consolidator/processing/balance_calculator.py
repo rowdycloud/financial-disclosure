@@ -120,10 +120,12 @@ class BalanceCalculator:
             )
 
             credits = sum(
-                txn.amount for txn in account_txns if txn.amount > 0
+                (txn.amount for txn in account_txns if txn.amount > 0),
+                Decimal("0"),
             )
             debits = sum(
-                txn.amount for txn in account_txns if txn.amount < 0
+                (txn.amount for txn in account_txns if txn.amount < 0),
+                Decimal("0"),
             )
 
             # Get closing balance from last transaction

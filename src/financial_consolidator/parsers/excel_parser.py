@@ -1,5 +1,6 @@
 """Excel parser using openpyxl library."""
 
+from collections.abc import Sequence
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -105,7 +106,7 @@ class ExcelParser(BaseParser):
             wb.close()
 
         except Exception as e:
-            raise ParseError(f"Failed to parse Excel file: {e}", file_path)
+            raise ParseError(f"Failed to parse Excel file: {e}", file_path) from e
 
         logger.info(f"Parsed {len(transactions)} transactions from {file_path.name}")
         return transactions
@@ -136,7 +137,7 @@ class ExcelParser(BaseParser):
         Returns:
             List of RawTransaction objects.
         """
-        transactions = []
+        transactions: list[RawTransaction] = []
 
         # Read all rows
         rows = list(sheet.iter_rows(values_only=True))
@@ -176,7 +177,7 @@ class ExcelParser(BaseParser):
         return transactions
 
     def _find_header_row(
-        self, rows: list[tuple[object, ...]]
+        self, rows: Sequence[tuple[object, ...]]
     ) -> int | None:
         """Find the header row in the worksheet.
 

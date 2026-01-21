@@ -15,7 +15,7 @@ Guidelines:
    - "ZELLE", "VENMO" = peer-to-peer transfers
    - Numbers at the end often indicate store/location IDs
 
-Response format: JSON only, no explanation outside the JSON."""
+Response format: Raw JSON only - no markdown code blocks, no explanation outside the JSON."""
 
 
 def build_categorization_prompt(
@@ -64,7 +64,7 @@ Guidelines:
 4. If ambiguous, express uncertainty
 5. Be conservative about suggesting corrections - the original system may have context you don't
 
-Response format: JSON only, no explanation outside the JSON."""
+Response format: Raw JSON only - no markdown code blocks, no explanation outside the JSON."""
 
 
 def build_validation_prompt(

@@ -15,7 +15,6 @@ try:
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
     from openpyxl.utils import get_column_letter
-    from openpyxl.utils.dataframe import dataframe_to_rows
 
     OPENPYXL_AVAILABLE = True
 except ImportError:
@@ -99,13 +98,17 @@ class ExcelWriter:
     def _create_pl_summary(
         self, wb: "Workbook", pl_summary: PLSummary
     ) -> None:
-        """Create P&L Summary sheet.
+        """Create P&L Summary sheet with year-by-year breakdown.
 
         Args:
             wb: Workbook to add sheet to.
             pl_summary: Pre-computed P&L summary data.
         """
+        from decimal import Decimal
+
         ws = wb.create_sheet("P&L Summary")
+        years = pl_summary.years
+        num_years = len(years)
 
         row = 1
 
@@ -120,71 +123,126 @@ class ExcelWriter:
         ws.cell(row=row, column=2, value=pl_summary.accounts_display)
         row += 2
 
-        # Income section
+        # Income section header with year columns
         ws.cell(row=row, column=1, value="INCOME")
         ws.cell(row=row, column=1).font = Font(bold=True)
+        for i, year in enumerate(years):
+            cell = ws.cell(row=row, column=i + 2, value=str(year))
+            cell.font = Font(bold=True)
+        cell = ws.cell(row=row, column=num_years + 2, value="Total")
+        cell.font = Font(bold=True)
         row += 1
 
-        for cat, amount in sorted(pl_summary.income_by_category.items()):
+        # Income categories
+        for cat in pl_summary.all_income_categories:
             ws.cell(row=row, column=1, value=sanitize_for_csv(cat))
-            ws.cell(row=row, column=2, value=float(amount))
-            ws.cell(row=row, column=2).number_format = self._money_format()
+            total = Decimal("0")
+            for i, year in enumerate(years):
+                amount = pl_summary.income_by_year.get(year, {}).get(cat, Decimal("0"))
+                cell = ws.cell(row=row, column=i + 2, value=float(amount))
+                cell.number_format = self._money_format()
+                total += amount
+            cell = ws.cell(row=row, column=num_years + 2, value=float(total))
+            cell.number_format = self._money_format()
             row += 1
 
+        # Total Income row
         ws.cell(row=row, column=1, value="Total Income")
         ws.cell(row=row, column=1).font = Font(bold=True)
-        ws.cell(row=row, column=2, value=float(pl_summary.total_income))
-        ws.cell(row=row, column=2).font = Font(bold=True)
-        ws.cell(row=row, column=2).number_format = self._money_format()
+        for i, year in enumerate(years):
+            cell = ws.cell(row=row, column=i + 2, value=float(pl_summary.income_for_year(year)))
+            cell.font = Font(bold=True)
+            cell.number_format = self._money_format()
+        cell = ws.cell(row=row, column=num_years + 2, value=float(pl_summary.total_income))
+        cell.font = Font(bold=True)
+        cell.number_format = self._money_format()
         row += 2
 
-        # Expense section
+        # Expense section header with year columns
         ws.cell(row=row, column=1, value="EXPENSES")
         ws.cell(row=row, column=1).font = Font(bold=True)
+        for i, year in enumerate(years):
+            cell = ws.cell(row=row, column=i + 2, value=str(year))
+            cell.font = Font(bold=True)
+        cell = ws.cell(row=row, column=num_years + 2, value="Total")
+        cell.font = Font(bold=True)
         row += 1
 
-        for cat, amount in sorted(pl_summary.expense_by_category.items()):
+        # Expense categories
+        for cat in pl_summary.all_expense_categories:
             ws.cell(row=row, column=1, value=sanitize_for_csv(cat))
-            ws.cell(row=row, column=2, value=float(amount))
-            ws.cell(row=row, column=2).number_format = self._money_format()
+            total = Decimal("0")
+            for i, year in enumerate(years):
+                amount = pl_summary.expense_by_year.get(year, {}).get(cat, Decimal("0"))
+                cell = ws.cell(row=row, column=i + 2, value=float(amount))
+                cell.number_format = self._money_format()
+                total += amount
+            cell = ws.cell(row=row, column=num_years + 2, value=float(total))
+            cell.number_format = self._money_format()
             row += 1
 
+        # Total Expenses row
         ws.cell(row=row, column=1, value="Total Expenses")
         ws.cell(row=row, column=1).font = Font(bold=True)
-        ws.cell(row=row, column=2, value=float(pl_summary.total_expenses))
-        ws.cell(row=row, column=2).font = Font(bold=True)
-        ws.cell(row=row, column=2).number_format = self._money_format()
+        for i, year in enumerate(years):
+            cell = ws.cell(row=row, column=i + 2, value=float(pl_summary.expenses_for_year(year)))
+            cell.font = Font(bold=True)
+            cell.number_format = self._money_format()
+        cell = ws.cell(row=row, column=num_years + 2, value=float(pl_summary.total_expenses))
+        cell.font = Font(bold=True)
+        cell.number_format = self._money_format()
         row += 2
 
-        # Net income
+        # Net income row
         ws.cell(row=row, column=1, value="NET INCOME")
         ws.cell(row=row, column=1).font = Font(bold=True, size=12)
-        ws.cell(row=row, column=2, value=float(pl_summary.net_income))
-        ws.cell(row=row, column=2).font = Font(bold=True, size=12)
-        ws.cell(row=row, column=2).number_format = self._money_format()
+        for i, year in enumerate(years):
+            cell = ws.cell(row=row, column=i + 2, value=float(pl_summary.net_income_for_year(year)))
+            cell.font = Font(bold=True, size=12)
+            cell.number_format = self._money_format()
+        cell = ws.cell(row=row, column=num_years + 2, value=float(pl_summary.net_income))
+        cell.font = Font(bold=True, size=12)
+        cell.number_format = self._money_format()
         row += 3
 
-        # Transfers memo section (excluded from P&L)
+        # Transfers memo section
         ws.cell(row=row, column=1, value="TRANSFERS")
         ws.cell(row=row, column=1).font = Font(bold=True, italic=True)
+        for i, year in enumerate(years):
+            cell = ws.cell(row=row, column=i + 2, value=str(year))
+            cell.font = Font(bold=True, italic=True)
+        cell = ws.cell(row=row, column=num_years + 2, value="Total")
+        cell.font = Font(bold=True, italic=True)
         row += 1
         ws.cell(row=row, column=1, value="(Money moved between accounts - not counted as income or expense)")
         ws.cell(row=row, column=1).font = Font(italic=True, color="666666")
         row += 1
 
-        for cat, amount in sorted(pl_summary.transfer_by_category.items()):
+        # Transfer categories
+        for cat in pl_summary.all_transfer_categories:
             ws.cell(row=row, column=1, value=sanitize_for_csv(cat))
-            ws.cell(row=row, column=2, value=float(amount))
-            ws.cell(row=row, column=2).number_format = self._money_format()
+            total = Decimal("0")
+            for i, year in enumerate(years):
+                amount = pl_summary.transfer_by_year.get(year, {}).get(cat, Decimal("0"))
+                cell = ws.cell(row=row, column=i + 2, value=float(amount))
+                cell.number_format = self._money_format()
+                total += amount
+            cell = ws.cell(row=row, column=num_years + 2, value=float(total))
+            cell.number_format = self._money_format()
             row += 1
 
+        # Total Transfers row
         ws.cell(row=row, column=1, value="Total Transfers")
-        ws.cell(row=row, column=2, value=float(pl_summary.total_transfers))
-        ws.cell(row=row, column=2).number_format = self._money_format()
+        for i, year in enumerate(years):
+            cell = ws.cell(row=row, column=i + 2, value=float(pl_summary.transfers_for_year(year)))
+            cell.number_format = self._money_format()
+        cell = ws.cell(row=row, column=num_years + 2, value=float(pl_summary.total_transfers))
+        cell.number_format = self._money_format()
 
         # Adjust column widths
-        ws.column_dimensions["A"].width = 60
-        ws.column_dimensions["B"].width = 15
+        ws.column_dimensions["A"].width = 40
+        for i in range(num_years + 1):
+            ws.column_dimensions[get_column_letter(i + 2)].width = 15
 
     def _create_master_list(
         self, wb: "Workbook", transactions: list[Transaction]

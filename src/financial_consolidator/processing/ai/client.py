@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -141,12 +142,14 @@ class AIClient:
         self,
         system_prompt: str,
         user_prompt: str,
+        max_tokens: int | None = None,
     ) -> tuple[str, int, int]:
         """Make a single API request with retry logic.
 
         Args:
             system_prompt: The system prompt.
             user_prompt: The user prompt.
+            max_tokens: Maximum tokens for response. If None, uses config default.
 
         Returns:
             Tuple of (response_text, input_tokens, output_tokens).
@@ -159,12 +162,13 @@ class AIClient:
 
         last_error = None
         delay = self.config.retry_delay
+        effective_max_tokens = max_tokens if max_tokens is not None else self.config.max_tokens
 
         for attempt in range(self.config.retry_attempts):
             try:
                 response = self._client.messages.create(
                     model=self.config.model,
-                    max_tokens=self.config.max_tokens,
+                    max_tokens=effective_max_tokens,
                     system=system_prompt,
                     messages=[{"role": "user", "content": user_prompt}],
                     timeout=60.0,
@@ -226,12 +230,14 @@ class AIClient:
         self,
         system_prompt: str,
         user_prompt: str,
+        max_tokens: int | None = None,
     ) -> tuple[str, int, int]:
         """Send a message to the AI and get response.
 
         Args:
             system_prompt: The system prompt.
             user_prompt: The user prompt.
+            max_tokens: Maximum tokens for response. If None, uses config default.
 
         Returns:
             Tuple of (response_text, input_tokens, output_tokens).
@@ -240,17 +246,38 @@ class AIClient:
             BudgetExceededError: If budget would be exceeded.
             AIClientError: If request fails.
         """
+        # Use effective max_tokens for cost estimation
+        effective_max_tokens = max_tokens if max_tokens is not None else self.config.max_tokens
+
         # Estimate cost and check budget
-        estimated_tokens = len(system_prompt + user_prompt) // 4 + self.config.max_tokens
+        estimated_tokens = len(system_prompt + user_prompt) // 4 + effective_max_tokens
         estimated_cost = self.cost_estimator.estimate_cost(
-            estimated_tokens, self.config.max_tokens
+            estimated_tokens, effective_max_tokens
         )
 
         within_budget, msg = self.cost_estimator.check_budget(estimated_cost)
         if not within_budget:
             raise BudgetExceededError(msg)
 
-        return self._make_request(system_prompt, user_prompt)
+        return self._make_request(system_prompt, user_prompt, max_tokens)
+
+    def _strip_markdown_fences(self, text: str) -> str:
+        """Strip markdown code fences from text.
+
+        Handles standard markdown code blocks with newlines:
+        - ```json\\n{...}\\n```
+        - ```\\n{...}\\n```
+
+        Edge cases (leading/trailing text, multiple blocks, malformed fences)
+        fall through to brace-matching in parse_json_response().
+        """
+        # Match ``` followed by optional language tag, newline, content, then ```
+        # Uses .* (greedy) since typical AI responses have single code blocks
+        pattern = r"^```[^\n]*\n(.*)\n?```\s*$"
+        match = re.match(pattern, text.strip(), re.DOTALL)
+        if match:
+            return match.group(1).strip()
+        return text
 
     def parse_json_response(self, response: str) -> dict[str, Any] | list[Any]:
         """Parse a JSON response from the AI.
@@ -266,6 +293,9 @@ class AIClient:
         Raises:
             ValueError: If JSON cannot be parsed.
         """
+        # Strip markdown code fences if present
+        response = self._strip_markdown_fences(response)
+
         # Try direct parse first
         try:
             result = json.loads(response)

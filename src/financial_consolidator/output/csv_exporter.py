@@ -2,6 +2,7 @@
 
 import csv
 import re
+from datetime import date
 from pathlib import Path
 
 from financial_consolidator.config import Config
@@ -103,7 +104,7 @@ class CSVExporter:
         base_dir: Path,
         pl_summary: PLSummary,
     ) -> Path:
-        """Export P&L Summary to CSV.
+        """Export P&L Summary to CSV with year-by-year breakdown.
 
         Args:
             base_dir: Output directory.
@@ -112,41 +113,91 @@ class CSVExporter:
         Returns:
             Path to created file.
         """
+        from decimal import Decimal
+
         output_path = base_dir / "pl_summary.csv"
+        years = pl_summary.years
 
         with open(output_path, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
 
             # Report metadata header
-            writer.writerow(["REPORT SUMMARY", ""])
+            writer.writerow(["REPORT SUMMARY"])
             writer.writerow(["Period", pl_summary.period_display])
             writer.writerow(["Accounts", pl_summary.accounts_display])
             writer.writerow([])
 
-            # Income section
-            writer.writerow(["INCOME", ""])
-            for cat, amount in sorted(pl_summary.income_by_category.items()):
-                writer.writerow([sanitize_for_csv(cat), f"{float(amount):.2f}"])
-            writer.writerow(["Total Income", f"{float(pl_summary.total_income):.2f}"])
+            # Income section with year columns
+            writer.writerow(["INCOME"] + [str(y) for y in years] + ["Total"])
+
+            for cat in pl_summary.all_income_categories:
+                row = [sanitize_for_csv(cat)]
+                total = Decimal("0")
+                for year in years:
+                    amount = pl_summary.income_by_year.get(year, {}).get(cat, Decimal("0"))
+                    row.append(f"{float(amount):.2f}")
+                    total += amount
+                row.append(f"{float(total):.2f}")
+                writer.writerow(row)
+
+            # Total Income row
+            row = ["Total Income"]
+            for year in years:
+                row.append(f"{float(pl_summary.income_for_year(year)):.2f}")
+            row.append(f"{float(pl_summary.total_income):.2f}")
+            writer.writerow(row)
             writer.writerow([])
 
-            # Expense section
-            writer.writerow(["EXPENSES", ""])
-            for cat, amount in sorted(pl_summary.expense_by_category.items()):
-                writer.writerow([sanitize_for_csv(cat), f"{float(amount):.2f}"])
-            writer.writerow(["Total Expenses", f"{float(pl_summary.total_expenses):.2f}"])
+            # Expense section with year columns
+            writer.writerow(["EXPENSES"] + [str(y) for y in years] + ["Total"])
+
+            for cat in pl_summary.all_expense_categories:
+                row = [sanitize_for_csv(cat)]
+                total = Decimal("0")
+                for year in years:
+                    amount = pl_summary.expense_by_year.get(year, {}).get(cat, Decimal("0"))
+                    row.append(f"{float(amount):.2f}")
+                    total += amount
+                row.append(f"{float(total):.2f}")
+                writer.writerow(row)
+
+            # Total Expenses row
+            row = ["Total Expenses"]
+            for year in years:
+                row.append(f"{float(pl_summary.expenses_for_year(year)):.2f}")
+            row.append(f"{float(pl_summary.total_expenses):.2f}")
+            writer.writerow(row)
             writer.writerow([])
 
-            # Net income
-            writer.writerow(["NET INCOME", f"{float(pl_summary.net_income):.2f}"])
+            # Net income row with year columns
+            row = ["NET INCOME"]
+            for year in years:
+                row.append(f"{float(pl_summary.net_income_for_year(year)):.2f}")
+            row.append(f"{float(pl_summary.net_income):.2f}")
+            writer.writerow(row)
             writer.writerow([])
 
-            # Transfers memo
-            writer.writerow(["TRANSFERS", ""])
-            writer.writerow(["(Money moved between accounts - not counted as income or expense)", ""])
-            for cat, amount in sorted(pl_summary.transfer_by_category.items()):
-                writer.writerow([sanitize_for_csv(cat), f"{float(amount):.2f}"])
-            writer.writerow(["Total Transfers", f"{float(pl_summary.total_transfers):.2f}"])
+            # Transfers section with year columns
+            writer.writerow(["TRANSFERS"] + [str(y) for y in years] + ["Total"])
+            transfer_note = "(Money moved between accounts - not counted as income or expense)"
+            writer.writerow([transfer_note] + [""] * (len(years) + 1))
+
+            for cat in pl_summary.all_transfer_categories:
+                row = [sanitize_for_csv(cat)]
+                total = Decimal("0")
+                for year in years:
+                    amount = pl_summary.transfer_by_year.get(year, {}).get(cat, Decimal("0"))
+                    row.append(f"{float(amount):.2f}")
+                    total += amount
+                row.append(f"{float(total):.2f}")
+                writer.writerow(row)
+
+            # Total Transfers row
+            row = ["Total Transfers"]
+            for year in years:
+                row.append(f"{float(pl_summary.transfers_for_year(year)):.2f}")
+            row.append(f"{float(pl_summary.total_transfers):.2f}")
+            writer.writerow(row)
 
         logger.info(f"Exported P&L Summary to {output_path}")
         return output_path
@@ -353,8 +404,8 @@ class CSVExporter:
                 end = gap.get("end_date")
                 writer.writerow([
                     str(gap.get("account_id", "")),
-                    date_to_iso(start) if start else "",
-                    date_to_iso(end) if end else "",
+                    date_to_iso(start) if isinstance(start, date) else "",
+                    date_to_iso(end) if isinstance(end, date) else "",
                     str(gap.get("gap_days", "")),
                     str(gap.get("severity", "")),
                 ])

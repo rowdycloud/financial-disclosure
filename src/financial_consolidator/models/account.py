@@ -101,6 +101,13 @@ class Account:
             date_str = str(data["opening_balance_date"])
             opening_balance_date = date.fromisoformat(date_str)
 
+        # Type-safe extraction from YAML data
+        raw_patterns = data.get("source_file_patterns", [])
+        source_patterns = list(raw_patterns) if isinstance(raw_patterns, (list, tuple)) else []
+
+        raw_order = data.get("display_order", 0)
+        display_order = int(raw_order) if isinstance(raw_order, (int, str, float)) else 0
+
         return cls(
             id=str(data["id"]),
             name=str(data.get("name", data["id"])),
@@ -111,8 +118,8 @@ class Account:
             ),
             opening_balance=opening_balance,
             opening_balance_date=opening_balance_date,
-            source_file_patterns=list(data.get("source_file_patterns", [])),  # type: ignore[arg-type]
-            display_order=int(data.get("display_order", 0)),  # type: ignore[arg-type]
+            source_file_patterns=source_patterns,
+            display_order=display_order,
             is_active=bool(data.get("is_active", True)),
         )
 

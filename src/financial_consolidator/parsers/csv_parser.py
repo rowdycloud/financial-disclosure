@@ -2,9 +2,11 @@
 
 import csv
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
+from typing import TypedDict
 
 from financial_consolidator.models.transaction import RawTransaction, TransactionType
 from financial_consolidator.parsers.base import BaseParser, ParseError
@@ -49,9 +51,17 @@ class CSVFormat:
     date_format: str | None = None
 
 
+class FormatInfo(TypedDict):
+    """Type definition for known CSV format entries."""
+
+    headers: list[str]
+    mapping: Callable[[dict[str, int]], ColumnMapping]
+    institution: str | None
+
+
 # Known bank column patterns for auto-detection
 # Each pattern maps header names (lowercase) to column roles
-KNOWN_FORMATS = {
+KNOWN_FORMATS: dict[str, FormatInfo] = {
     "chase": {
         "headers": ["transaction date", "post date", "description", "category", "type", "amount"],
         "mapping": lambda cols: ColumnMapping(
@@ -277,7 +287,7 @@ class CSVParser(BaseParser):
                         if self.strict:
                             raise ParseError(
                                 f"Row {row_num}: {e}", file_path
-                            )
+                            ) from e
                         logger.warning(
                             f"Error parsing row {row_num} in {file_path.name}: {e}"
                         )
@@ -286,7 +296,7 @@ class CSVParser(BaseParser):
         except ParseError:
             raise  # Preserve original ParseError with context
         except Exception as e:
-            raise ParseError(f"Failed to parse CSV file: {e}", file_path)
+            raise ParseError(f"Failed to parse CSV file: {e}", file_path) from e
 
         logger.info(f"Parsed {len(transactions)} transactions from {file_path.name} ({skipped_count} rows skipped)")
         if skipped_count > 0:
@@ -370,13 +380,13 @@ class CSVParser(BaseParser):
                 )
 
         # Fallback: try to auto-detect columns
-        mapping = self._auto_detect_columns(headers, col_indices)
-        if mapping:
+        auto_mapping = self._auto_detect_columns(headers, col_indices)
+        if auto_mapping:
             return CSVFormat(
                 delimiter=delimiter,
                 has_header=True,
                 skip_rows=skip_rows,
-                column_mapping=mapping,
+                column_mapping=auto_mapping,
                 institution=None,
             )
 
@@ -410,7 +420,7 @@ class CSVParser(BaseParser):
 
         # Choose delimiter with most consistent non-zero count
         best_delimiter = ","
-        best_score = 0
+        best_score: float = 0.0
 
         for d, counts in delimiter_counts.items():
             non_zero = [c for c in counts if c > 0]

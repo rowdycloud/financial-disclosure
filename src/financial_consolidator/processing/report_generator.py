@@ -8,7 +8,7 @@ from financial_consolidator.models.transaction import Transaction
 
 
 def generate_pl_summary(transactions: list[Transaction], config: Config) -> PLSummary:
-    """Generate P&L summary from transactions.
+    """Generate P&L summary from transactions with year-by-year breakdown.
 
     Single source of truth for P&L calculations - used by both CSV and Excel exporters.
 
@@ -17,7 +17,7 @@ def generate_pl_summary(transactions: list[Transaction], config: Config) -> PLSu
         config: Application configuration (for category lookups).
 
     Returns:
-        PLSummary with pre-computed totals by category.
+        PLSummary with pre-computed totals by year and category.
     """
     if not transactions:
         return PLSummary(
@@ -33,10 +33,13 @@ def generate_pl_summary(transactions: list[Transaction], config: Config) -> PLSu
     # Accounts (sorted, unique)
     accounts = sorted({t.account_name for t in transactions})
 
-    # Category totals
-    income_by_cat: dict[str, Decimal] = {}
-    expense_by_cat: dict[str, Decimal] = {}
-    transfer_by_cat: dict[str, Decimal] = {}
+    # Collect all years
+    years = sorted({t.date.year for t in transactions})
+
+    # Year-keyed category totals
+    income_by_year: dict[int, dict[str, Decimal]] = {}
+    expense_by_year: dict[int, dict[str, Decimal]] = {}
+    transfer_by_year: dict[int, dict[str, Decimal]] = {}
 
     for t in transactions:
         if not t.category:
@@ -46,21 +49,26 @@ def generate_pl_summary(transactions: list[Transaction], config: Config) -> PLSu
         if not cat:
             continue
 
+        year = t.date.year
         cat_name = cat.name
         cat_type = cat.category_type.value if cat.category_type else None
 
         if cat_type == "income":
-            income_by_cat[cat_name] = income_by_cat.get(cat_name, Decimal("0")) + t.amount
+            year_cats = income_by_year.setdefault(year, {})
+            year_cats[cat_name] = year_cats.get(cat_name, Decimal("0")) + t.amount
         elif cat_type == "expense":
-            expense_by_cat[cat_name] = expense_by_cat.get(cat_name, Decimal("0")) + abs(t.amount)
+            year_cats = expense_by_year.setdefault(year, {})
+            year_cats[cat_name] = year_cats.get(cat_name, Decimal("0")) + abs(t.amount)
         elif cat_type == "transfer":
-            transfer_by_cat[cat_name] = transfer_by_cat.get(cat_name, Decimal("0")) + t.amount
+            year_cats = transfer_by_year.setdefault(year, {})
+            year_cats[cat_name] = year_cats.get(cat_name, Decimal("0")) + t.amount
 
     return PLSummary(
         period_start=period_start,
         period_end=period_end,
         accounts=accounts,
-        income_by_category=income_by_cat,
-        expense_by_category=expense_by_cat,
-        transfer_by_category=transfer_by_cat,
+        years=years,
+        income_by_year=income_by_year,
+        expense_by_year=expense_by_year,
+        transfer_by_year=transfer_by_year,
     )
