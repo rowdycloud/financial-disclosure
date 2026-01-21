@@ -34,7 +34,13 @@ AVG_TOKENS_PER_CATEGORY = 15  # "- dining: Dining and Restaurants"
 AVG_TOKENS_PER_TRANSACTION = 25  # description + amount + account
 AVG_SYSTEM_PROMPT_TOKENS = 200
 AVG_OUTPUT_TOKENS_SINGLE = 50  # JSON response for single transaction
-AVG_OUTPUT_TOKENS_BATCH_ITEM = 30  # JSON per item in batch
+AVG_OUTPUT_TOKENS_BATCH_ITEM = 30  # JSON per item in batch (for cost estimation)
+
+# Max tokens buffer per batch item (for API max_tokens parameter)
+# Higher than AVG to prevent truncation with verbose reasoning
+MAX_TOKENS_PER_BATCH_ITEM = 120
+MAX_TOKENS_BUFFER = 100
+MAX_OUTPUT_TOKENS_LIMIT = 4096  # Conservative limit that works across all Claude models
 
 
 @dataclass
