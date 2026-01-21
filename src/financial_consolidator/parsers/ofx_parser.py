@@ -157,9 +157,9 @@ class OFXParser(BaseParser):
                                 transactions.append(raw_txn)
 
         except OfxParserException as e:
-            raise ParseError(f"Invalid OFX file format: {e}", file_path)
+            raise ParseError(f"Invalid OFX file format: {e}", file_path) from e
         except Exception as e:
-            raise ParseError(f"Failed to parse OFX file: {e}", file_path)
+            raise ParseError(f"Failed to parse OFX file: {e}", file_path) from e
 
         logger.info(f"Parsed {len(transactions)} transactions from {file_path.name}")
         return transactions

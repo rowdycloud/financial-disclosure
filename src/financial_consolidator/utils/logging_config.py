@@ -3,6 +3,7 @@
 import logging
 import sys
 from pathlib import Path
+from typing import Literal
 
 # Default log file name
 DEFAULT_LOG_FILE = "financial_consolidator.log"
@@ -113,7 +114,7 @@ class LogContext:
         exc_type: type | None,
         exc_val: BaseException | None,
         exc_tb: object | None,
-    ) -> bool:
+    ) -> Literal[False]:
         if exc_type is not None:
             self.logger.error(
                 f"Error in {self.operation}: {exc_type.__name__}: {exc_val}",

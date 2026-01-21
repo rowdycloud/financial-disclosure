@@ -136,12 +136,15 @@ class Category:
         except ValueError:
             category_type = CategoryType.EXPENSE
 
+        raw_order = data.get("display_order", 0)
+        display_order = int(raw_order) if isinstance(raw_order, (int, str, float)) else 0
+
         return cls(
             id=str(data["id"]),
             name=str(data.get("name", data["id"])),
             category_type=category_type,
             parent_id=str(data["parent"]) if "parent" in data else None,
-            display_order=int(data.get("display_order", 0)),  # type: ignore[arg-type]
+            display_order=display_order,
             color=str(data["color"]) if "color" in data else None,
         )
 
@@ -309,13 +312,13 @@ class CategoryRule:
         # "patterns specified but all rejected"
         regex_match = False
         if self._compiled_patterns:
-            for i, pattern in enumerate(self._compiled_patterns):
-                if pattern.search(description):
+            for i, compiled in enumerate(self._compiled_patterns):
+                if compiled.search(description):
                     regex_match = True
-                    if i < len(self.regex_patterns):
-                        matched_pattern = self.regex_patterns[i]
-                    else:
-                        matched_pattern = str(pattern.pattern)
+                    matched_pattern = (
+                        self.regex_patterns[i] if i < len(self.regex_patterns)
+                        else compiled.pattern
+                    )
                     break
         elif not self.regex_patterns:
             # No regex patterns were specified at all - don't filter by regex
@@ -490,16 +493,29 @@ class CategoryRule:
             if mode_str == "word":
                 match_mode = MatchMode.WORD_BOUNDARY
 
+        # Type-safe extraction of list/int fields from YAML data
+        raw_keywords = data.get("keywords", [])
+        keywords = list(raw_keywords) if isinstance(raw_keywords, (list, tuple)) else []
+
+        raw_regex = data.get("regex_patterns", [])
+        regex_patterns = list(raw_regex) if isinstance(raw_regex, (list, tuple)) else []
+
+        raw_accounts = data.get("account_ids", [])
+        account_ids = list(raw_accounts) if isinstance(raw_accounts, (list, tuple)) else []
+
+        raw_priority = data.get("priority", 0)
+        priority = int(raw_priority) if isinstance(raw_priority, (int, str, float)) else 0
+
         return cls(
             id=str(data["id"]),
             category_id=str(data["category"]),
             subcategory_id=str(data["subcategory"]) if "subcategory" in data else None,
-            keywords=list(data.get("keywords", [])),  # type: ignore[arg-type]
-            regex_patterns=list(data.get("regex_patterns", [])),  # type: ignore[arg-type]
+            keywords=keywords,
+            regex_patterns=regex_patterns,
             amount_min=amount_min,
             amount_max=amount_max,
-            account_ids=list(data.get("account_ids", [])),  # type: ignore[arg-type]
-            priority=int(data.get("priority", 0)),  # type: ignore[arg-type]
+            account_ids=account_ids,
+            priority=priority,
             is_active=bool(data.get("is_active", True)),
             match_mode=match_mode,
         )
@@ -576,11 +592,18 @@ class ManualOverride:
         Returns:
             A new ManualOverride instance.
         """
+        # Type-safe extraction from YAML data
+        raw_keywords = data.get("keywords", [])
+        keywords = list(raw_keywords) if isinstance(raw_keywords, (list, tuple)) else []
+
+        raw_priority = data.get("priority", 0)
+        priority = int(raw_priority) if isinstance(raw_priority, (int, str, float)) else 0
+
         return cls(
             date_str=str(data["date"]),
             amount=Decimal(str(data["amount"])),
-            keywords=list(data.get("keywords", [])),  # type: ignore[arg-type]
+            keywords=keywords,
             category_id=str(data["category"]),
             subcategory_id=str(data["subcategory"]) if "subcategory" in data else None,
-            priority=int(data.get("priority", 0)),  # type: ignore[arg-type]
+            priority=priority,
         )

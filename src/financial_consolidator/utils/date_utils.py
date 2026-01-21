@@ -78,8 +78,8 @@ def parse_date(raw_date: str) -> date:
     # Try generic parsing as fallback
     try:
         # Handle datetime objects (e.g., from ofxparse)
-        if hasattr(raw_date, "date"):
-            return raw_date.date()  # type: ignore[union-attr]
+        if isinstance(raw_date, datetime):
+            return raw_date.date()
 
         # Try ISO format parsing
         return date.fromisoformat(date_str)

@@ -196,7 +196,7 @@ class FileDetector:
             except ParseError as e:
                 error_msg = f"{file_path.name}: {e}"
                 if strict:
-                    raise ParseError(error_msg, file_path)
+                    raise ParseError(error_msg, file_path) from e
                 errors.append(error_msg)
                 logger.warning(f"Skipping {file_path.name}: {e}")
             except FileNotFoundError:
@@ -208,7 +208,7 @@ class FileDetector:
             except Exception as e:
                 error_msg = f"{file_path.name}: Unexpected error: {e}"
                 if strict:
-                    raise ParseError(error_msg, file_path)
+                    raise ParseError(error_msg, file_path) from e
                 errors.append(error_msg)
                 logger.error(error_msg)
 

@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
+from typing import cast
 
 import yaml
 
@@ -60,13 +61,29 @@ class AnomalyConfig:
         if "large_transaction_threshold" in data:
             threshold = Decimal(str(data["large_transaction_threshold"]))
 
+        # Type-safe extraction from YAML data
+        raw_warning = data.get("date_gap_warning_days", 7)
+        warning_days = int(raw_warning) if isinstance(raw_warning, (int, str, float)) else 7
+
+        raw_alert = data.get("date_gap_alert_days", 30)
+        alert_days = int(raw_alert) if isinstance(raw_alert, (int, str, float)) else 30
+
+        raw_fees = data.get("fee_keywords", DEFAULT_FEE_KEYWORDS)
+        fee_keywords = list(raw_fees) if isinstance(raw_fees, (list, tuple)) else list(DEFAULT_FEE_KEYWORDS)
+
+        raw_cash = data.get("cash_advance_keywords", DEFAULT_CASH_ADVANCE_KEYWORDS)
+        cash_keywords = list(raw_cash) if isinstance(raw_cash, (list, tuple)) else list(DEFAULT_CASH_ADVANCE_KEYWORDS)
+
+        raw_patterns = data.get("custom_patterns", [])
+        custom_patterns = list(raw_patterns) if isinstance(raw_patterns, (list, tuple)) else []
+
         return cls(
             large_transaction_threshold=threshold,
-            date_gap_warning_days=int(data.get("date_gap_warning_days", 7)),  # type: ignore[arg-type]
-            date_gap_alert_days=int(data.get("date_gap_alert_days", 30)),  # type: ignore[arg-type]
-            fee_keywords=list(data.get("fee_keywords", DEFAULT_FEE_KEYWORDS)),  # type: ignore[arg-type]
-            cash_advance_keywords=list(data.get("cash_advance_keywords", DEFAULT_CASH_ADVANCE_KEYWORDS)),  # type: ignore[arg-type]
-            custom_patterns=list(data.get("custom_patterns", [])),  # type: ignore[arg-type]
+            date_gap_warning_days=warning_days,
+            date_gap_alert_days=alert_days,
+            fee_keywords=fee_keywords,
+            cash_advance_keywords=cash_keywords,
+            custom_patterns=custom_patterns,
         )
 
 
@@ -89,11 +106,14 @@ class OutputConfig:
     @classmethod
     def from_dict(cls, data: dict[str, object]) -> "OutputConfig":
         """Create from dictionary."""
+        raw_decimal_places = data.get("decimal_places", 2)
+        decimal_places = int(raw_decimal_places) if isinstance(raw_decimal_places, (int, str, float)) else 2
+
         return cls(
             format=str(data.get("format", "xlsx")),
             date_format=str(data.get("date_format", "%Y-%m-%d")),
             currency_symbol=str(data.get("currency_symbol", "$")),
-            decimal_places=int(data.get("decimal_places", 2)),  # type: ignore[arg-type]
+            decimal_places=decimal_places,
         )
 
 
@@ -154,9 +174,13 @@ class AICategorizationConfig:
         validation_data = data.get("validation", {})
 
         # Parse max_tokens with type safety
-        try:
-            max_tokens = int(data.get("max_tokens", 150))  # type: ignore[arg-type]
-        except (ValueError, TypeError):
+        raw_max_tokens = data.get("max_tokens", 150)
+        if isinstance(raw_max_tokens, (int, str, float)):
+            try:
+                max_tokens = int(raw_max_tokens)
+            except (ValueError, TypeError):
+                max_tokens = 150
+        else:
             max_tokens = 150
 
         # Parse budget_limit with range validation (no negative budgets)
@@ -168,14 +192,20 @@ class AICategorizationConfig:
 
         # Parse validation_threshold with range validation (clamp to 0-1)
         try:
-            raw_val_thresh = validation_data.get("confidence_threshold", 0.7) if isinstance(validation_data, dict) else 0.7
+            if isinstance(validation_data, dict):
+                raw_val_thresh = validation_data.get("confidence_threshold", 0.7)
+            else:
+                raw_val_thresh = 0.7
             validation_threshold = max(0.0, min(1.0, float(raw_val_thresh)))  # type: ignore[arg-type]
         except (ValueError, TypeError):
             validation_threshold = 0.7
 
         # Parse correction_threshold with range validation (clamp to 0-1)
         try:
-            raw_corr_thresh = validation_data.get("correction_threshold", 0.9) if isinstance(validation_data, dict) else 0.9
+            if isinstance(validation_data, dict):
+                raw_corr_thresh = validation_data.get("correction_threshold", 0.9)
+            else:
+                raw_corr_thresh = 0.9
             correction_threshold = max(0.0, min(1.0, float(raw_corr_thresh)))  # type: ignore[arg-type]
         except (ValueError, TypeError):
             correction_threshold = 0.9
@@ -200,7 +230,9 @@ class AICategorizationConfig:
             model=str(data.get("model", "claude-sonnet-4-5-20250929")),
             max_tokens=max_tokens,
             budget_limit=budget_limit,
-            require_confirmation=bool(budget_data.get("require_confirmation", True) if isinstance(budget_data, dict) else True),
+            require_confirmation=bool(
+                budget_data.get("require_confirmation", True) if isinstance(budget_data, dict) else True
+            ),
             validation_threshold=validation_threshold,
             correction_threshold=correction_threshold,
             requests_per_minute=requests_per_minute,
@@ -313,7 +345,7 @@ def load_yaml_file(path: Path) -> dict[str, object]:
     with open(path, encoding="utf-8") as f:
         content = yaml.safe_load(f)
 
-    return content if content else {}
+    return cast(dict[str, object], content) if content else {}
 
 
 def load_settings(
@@ -391,8 +423,9 @@ def load_accounts(path: Path) -> tuple[dict[str, Account], dict[str, str]]:
                 accounts[account.id] = account
 
     file_mappings: dict[str, str] = {}
-    if "file_mappings" in data and data["file_mappings"] is not None:
-        file_mappings = dict(data["file_mappings"])  # type: ignore[arg-type]
+    raw_mappings = data.get("file_mappings")
+    if isinstance(raw_mappings, dict):
+        file_mappings = {str(k): str(v) for k, v in raw_mappings.items()}
 
     return accounts, file_mappings
 

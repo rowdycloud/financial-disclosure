@@ -110,7 +110,7 @@ class PDFParser(BaseParser):
                         total_skipped += skipped
 
         except Exception as e:
-            raise ParseError(f"Failed to parse PDF file: {e}", file_path)
+            raise ParseError(f"Failed to parse PDF file: {e}", file_path) from e
 
         logger.info(
             f"Parsed {len(transactions)} transactions from {file_path.name} "

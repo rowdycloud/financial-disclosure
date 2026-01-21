@@ -68,7 +68,7 @@ class Deduplicator:
         duplicate_count = 0
 
         # Check each group for duplicates
-        for key, group in by_key.items():
+        for _key, group in by_key.items():
             if len(group) < 2:
                 continue
 
