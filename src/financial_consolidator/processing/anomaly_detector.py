@@ -132,7 +132,7 @@ class AnomalyDetector:
                 return False
 
         # Check for weaker fee keywords (like "CHARGE") only if no transfer indicator
-        weak_keywords = ["CHARGE", "SERVICE CHARGE"]
+        weak_keywords = ["CHARGE"]
         for keyword in weak_keywords:
             if re.search(r"\b" + re.escape(keyword) + r"\b", description):
                 return True
