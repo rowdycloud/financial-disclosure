@@ -29,6 +29,7 @@ class ExcelWriter:
     - P&L Summary
     - All Transactions (Master List)
     - Deposits
+    - Transfers
     - Per-account transaction history
     - Category Analysis
     - Anomalies
@@ -88,6 +89,7 @@ class ExcelWriter:
         self._create_pl_summary(wb, pl_summary)
         self._create_master_list(wb, transactions)
         self._create_deposits_sheet(wb, transactions)
+        self._create_transfers_sheet(wb, transactions)
         self._create_account_sheets(wb, transactions)
         self._create_category_analysis(wb, transactions)
         self._create_anomalies_sheet(wb, transactions, date_gaps or [])
@@ -375,6 +377,68 @@ class ExcelWriter:
             amount_cell = ws.cell(row=row, column=6, value=float(txn.amount))
             amount_cell.number_format = self._money_format()
             amount_cell.font = self.money_positive  # Always green since deposits are positive
+
+            if txn.running_balance is not None:
+                balance_cell = ws.cell(row=row, column=7, value=float(txn.running_balance))
+                balance_cell.number_format = self._money_format()
+
+            ws.cell(row=row, column=8, value=sanitize_for_csv(txn.source_file))
+
+        # Adjust column widths
+        widths = [12, 25, 40, 20, 20, 12, 12, 25]
+        for i, width in enumerate(widths, 1):
+            ws.column_dimensions[get_column_letter(i)].width = width
+
+        # Freeze header row
+        ws.freeze_panes = "A2"
+
+    def _create_transfers_sheet(
+        self, wb: "Workbook", transactions: list[Transaction]
+    ) -> None:
+        """Create Transfers sheet showing only transfer-type transactions.
+
+        Args:
+            wb: Workbook to add sheet to.
+            transactions: Transaction data.
+        """
+        ws = wb.create_sheet("Transfers")
+
+        # Headers
+        headers = [
+            "Date", "Account", "Description", "Category", "Sub-category",
+            "Amount", "Balance", "Source File"
+        ]
+
+        # Write headers
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col, value=header)
+            cell.font = self.header_font
+            cell.fill = self.header_fill
+            cell.alignment = self.centered
+
+        # Filter to transfers only (category type == "transfer")
+        transfers = [
+            txn for txn in transactions
+            if self._get_category_type(txn.category) == "transfer"
+        ]
+
+        # Sort transfers by date, then account, then description
+        sorted_transfers = sorted(
+            transfers, key=lambda t: (t.date, t.account_name, t.description)
+        )
+
+        # Write data
+        for row, txn in enumerate(sorted_transfers, 2):
+            ws.cell(row=row, column=1, value=txn.date)
+            ws.cell(row=row, column=2, value=sanitize_for_csv(txn.account_name))
+            ws.cell(row=row, column=3, value=sanitize_for_csv(txn.description))
+            ws.cell(row=row, column=4, value=sanitize_for_csv(self._get_category_name(txn.category)))
+            ws.cell(row=row, column=5, value=sanitize_for_csv(self._get_category_name(txn.subcategory)))
+
+            amount_cell = ws.cell(row=row, column=6, value=float(txn.amount))
+            amount_cell.number_format = self._money_format()
+            # Green for positive, red for negative
+            amount_cell.font = self.money_positive if txn.amount >= 0 else self.money_negative
 
             if txn.running_balance is not None:
                 balance_cell = ws.cell(row=row, column=7, value=float(txn.running_balance))
