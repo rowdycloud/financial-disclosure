@@ -321,16 +321,31 @@ class CSVExporter:
         """
         output_path = base_dir / "category_analysis.csv"
 
-        # Calculate by category and month
+        # Calculate by category and month (aligned with P&L logic)
         by_category: dict[str, dict[str, float]] = {}
         for txn in transactions:
-            cat_name = self._get_category_name(txn.category) or "Uncategorized"
+            # Skip uncategorized transactions (match P&L behavior)
+            if not txn.category:
+                continue
+
+            cat = self.config.categories.get(txn.category)
+            if not cat:
+                continue
+
+            cat_name = cat.name
+            cat_type = cat.category_type.value if cat.category_type else None
             month_key = txn.date.strftime("%Y-%m")
+
+            # Use abs() for expenses (match P&L behavior)
+            if cat_type == "expense":
+                amount = abs(float(txn.amount))
+            else:
+                amount = float(txn.amount)
 
             if cat_name not in by_category:
                 by_category[cat_name] = {}
             by_category[cat_name][month_key] = (
-                by_category[cat_name].get(month_key, 0) + float(txn.amount)
+                by_category[cat_name].get(month_key, 0) + amount
             )
 
         # Get all months

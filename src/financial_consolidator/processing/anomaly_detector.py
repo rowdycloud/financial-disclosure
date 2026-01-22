@@ -111,9 +111,32 @@ class AnomalyDetector:
             True if transaction appears to be a fee.
         """
         description = txn.description.upper()
-        for keyword in self.anomaly_config.fee_keywords:
-            if keyword.upper() in description:
+
+        # Exclude known POS/merchant prefixes (these are never fees)
+        merchant_prefixes = ["TST*", "SQ *", "SQU*", "TOAST*"]
+        for prefix in merchant_prefixes:
+            if description.startswith(prefix):
+                return False
+
+        # Strong fee keywords that override transfer indicators
+        # These are definitive fee indicators even when combined with transfer services
+        strong_keywords = ["FEE", "PENALTY", "OVERDRAFT", "NSF", "LATE FEE", "ANNUAL FEE", "MONTHLY FEE"]
+        for keyword in strong_keywords:
+            if re.search(r"\b" + re.escape(keyword) + r"\b", description):
                 return True
+
+        # Exclude transfers (to avoid "CHARGE" false positives like "VENMO CHARGE")
+        transfer_indicators = ["TRANSFER", "VENMO", "ZELLE", "PAYPAL", "ACH", "WIRE"]
+        for indicator in transfer_indicators:
+            if indicator in description:
+                return False
+
+        # Check for weaker fee keywords (like "CHARGE") only if no transfer indicator
+        weak_keywords = ["CHARGE", "SERVICE CHARGE"]
+        for keyword in weak_keywords:
+            if re.search(r"\b" + re.escape(keyword) + r"\b", description):
+                return True
+
         return False
 
     def _is_cash_advance(self, txn: Transaction) -> bool:
@@ -160,6 +183,14 @@ class AnomalyDetector:
                     return reason
             except re.error:
                 logger.warning(f"Invalid regex pattern: {pattern}")
+
+        # Amount-based detection for payment apps (more accurate than regex)
+        if abs(txn.amount) >= 500:
+            desc_upper = txn.description.upper()
+            if "VENMO" in desc_upper:
+                return "Large Venmo transfer ($500+)"
+            if "ZELLE" in desc_upper:
+                return "Large Zelle transfer ($500+)"
 
         return None
 
