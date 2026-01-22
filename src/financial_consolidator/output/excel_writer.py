@@ -28,6 +28,7 @@ class ExcelWriter:
     Generates sheets:
     - P&L Summary
     - All Transactions (Master List)
+    - Deposits
     - Per-account transaction history
     - Category Analysis
     - Anomalies
@@ -86,6 +87,7 @@ class ExcelWriter:
         # Create sheets
         self._create_pl_summary(wb, pl_summary)
         self._create_master_list(wb, transactions)
+        self._create_deposits_sheet(wb, transactions)
         self._create_account_sheets(wb, transactions)
         self._create_category_analysis(wb, transactions)
         self._create_anomalies_sheet(wb, transactions, date_gaps or [])
@@ -324,6 +326,64 @@ class ExcelWriter:
 
         # Adjust column widths
         widths = [12, 25, 40, 20, 20, 12, 12, 25, 12, 15, 10, 20, 12, 40]
+        for i, width in enumerate(widths, 1):
+            ws.column_dimensions[get_column_letter(i)].width = width
+
+        # Freeze header row
+        ws.freeze_panes = "A2"
+
+    def _create_deposits_sheet(
+        self, wb: "Workbook", transactions: list[Transaction]
+    ) -> None:
+        """Create Deposits sheet showing only positive amount transactions.
+
+        Args:
+            wb: Workbook to add sheet to.
+            transactions: Transaction data.
+        """
+        ws = wb.create_sheet("Deposits")
+
+        # Headers
+        headers = [
+            "Date", "Account", "Description", "Category", "Sub-category",
+            "Amount", "Balance", "Source File"
+        ]
+
+        # Write headers
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col, value=header)
+            cell.font = self.header_font
+            cell.fill = self.header_fill
+            cell.alignment = self.centered
+
+        # Filter to deposits only (amount > 0, excludes zero and negative)
+        deposits = [txn for txn in transactions if txn.amount > 0]
+
+        # Sort deposits by date, then account, then description
+        sorted_deposits = sorted(
+            deposits, key=lambda t: (t.date, t.account_name, t.description)
+        )
+
+        # Write data
+        for row, txn in enumerate(sorted_deposits, 2):
+            ws.cell(row=row, column=1, value=txn.date)
+            ws.cell(row=row, column=2, value=sanitize_for_csv(txn.account_name))
+            ws.cell(row=row, column=3, value=sanitize_for_csv(txn.description))
+            ws.cell(row=row, column=4, value=sanitize_for_csv(self._get_category_name(txn.category)))
+            ws.cell(row=row, column=5, value=sanitize_for_csv(self._get_category_name(txn.subcategory)))
+
+            amount_cell = ws.cell(row=row, column=6, value=float(txn.amount))
+            amount_cell.number_format = self._money_format()
+            amount_cell.font = self.money_positive  # Always green since deposits are positive
+
+            if txn.running_balance is not None:
+                balance_cell = ws.cell(row=row, column=7, value=float(txn.running_balance))
+                balance_cell.number_format = self._money_format()
+
+            ws.cell(row=row, column=8, value=sanitize_for_csv(txn.source_file))
+
+        # Adjust column widths
+        widths = [12, 25, 40, 20, 20, 12, 12, 25]
         for i, width in enumerate(widths, 1):
             ws.column_dimensions[get_column_letter(i)].width = width
 

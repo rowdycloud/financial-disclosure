@@ -45,6 +45,7 @@ class CSVExporter:
     Creates separate CSV files for each sheet type in the output directory:
     - pl_summary.csv
     - all_transactions.csv
+    - deposits.csv
     - account_{name}.csv (one per account)
     - category_analysis.csv
     - anomalies.csv
@@ -87,6 +88,7 @@ class CSVExporter:
         files = [
             self._export_pl_summary(base_dir, pl_summary),
             self._export_all_transactions(base_dir, transactions),
+            self._export_deposits(base_dir, transactions),
             self._export_category_analysis(base_dir, transactions),
             self._export_anomalies(base_dir, transactions, date_gaps or []),
         ]
@@ -255,6 +257,54 @@ class CSVExporter:
                 ])
 
         logger.info(f"Exported {len(transactions)} transactions to {output_path}")
+        return output_path
+
+    def _export_deposits(
+        self,
+        base_dir: Path,
+        transactions: list[Transaction],
+    ) -> Path:
+        """Export deposits (positive amount transactions) to CSV.
+
+        Args:
+            base_dir: Output directory.
+            transactions: Transaction data.
+
+        Returns:
+            Path to created file.
+        """
+        output_path = base_dir / "deposits.csv"
+
+        # Filter to deposits only (amount > 0, excludes zero and negative)
+        deposits = [txn for txn in transactions if txn.amount > 0]
+
+        with open(output_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+
+            # Headers
+            writer.writerow([
+                "Date", "Account", "Description", "Category", "Sub-category",
+                "Amount", "Balance", "Source File"
+            ])
+
+            # Sort by date, then account, then description
+            sorted_deposits = sorted(
+                deposits, key=lambda t: (t.date, t.account_name, t.description)
+            )
+
+            for txn in sorted_deposits:
+                writer.writerow([
+                    date_to_iso(txn.date),
+                    sanitize_for_csv(txn.account_name),
+                    sanitize_for_csv(txn.description),
+                    sanitize_for_csv(self._get_category_name(txn.category) or ""),
+                    sanitize_for_csv(self._get_category_name(txn.subcategory) or ""),
+                    f"{txn.amount:.2f}",
+                    f"{txn.running_balance:.2f}" if txn.running_balance else "",
+                    sanitize_for_csv(txn.source_file),
+                ])
+
+        logger.info(f"Exported {len(deposits)} deposits to {output_path}")
         return output_path
 
     def _export_account_sheets(

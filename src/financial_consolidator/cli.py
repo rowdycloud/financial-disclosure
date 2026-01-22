@@ -824,6 +824,7 @@ def main() -> int:
     # Track statistics
     total_files = 0
     parsed_files = 0
+    total_raw_transactions = 0
     skipped_files: list[str] = []
     error_list: list[str] = []
     all_transactions: list[Transaction] = []
@@ -869,18 +870,29 @@ def main() -> int:
         task = progress.add_task("Parsing files...", total=len(files_to_parse))
 
         for file_path in files_to_parse:
-            progress.console.print(f"  Parsing {file_path.name}")
-            progress.update(task, advance=1)
             account = file_account_map[file_path]
 
             # Parse file
             try:
                 raw_transactions = detector.parse_file(file_path)
+                file_txn_count = len(raw_transactions)
+                total_raw_transactions += file_txn_count
 
                 # Normalize transactions
                 transactions = normalizer.normalize(raw_transactions, account)
                 all_transactions.extend(transactions)
                 parsed_files += 1
+
+                # Success output - show both counts when they differ
+                normalized_count = len(transactions)
+                if normalized_count == file_txn_count:
+                    progress.console.print(
+                        f"  [green]✓[/green] {file_path.name}: {file_txn_count} transactions"
+                    )
+                else:
+                    progress.console.print(
+                        f"  [green]✓[/green] {file_path.name}: {normalized_count}/{file_txn_count} transactions"
+                    )
 
             except ParseError as e:
                 error_msg = f"{file_path.name}: {e}"
@@ -889,6 +901,10 @@ def main() -> int:
                     return 1
                 error_list.append(error_msg)
                 logger.warning(error_msg)
+                # Failure output
+                progress.console.print(
+                    f"  [red]✗[/red] {file_path.name}: failed - {e}"
+                )
             except Exception as e:
                 error_msg = f"{file_path.name}: Unexpected error: {e}"
                 if args.strict:
@@ -896,8 +912,26 @@ def main() -> int:
                     return 1
                 error_list.append(error_msg)
                 logger.error(error_msg)
+                # Failure output
+                progress.console.print(
+                    f"  [red]✗[/red] {file_path.name}: failed - {e}"
+                )
 
-    console.print(f"Parsed {len(all_transactions)} transactions from {parsed_files} files")
+            progress.update(task, advance=1)
+
+    if config.start_date or config.end_date:
+        # Date filter active - show ratio with date context
+        date_info = f"{config.start_date or 'start'} to {config.end_date or 'present'}"
+        console.print(
+            f"Parsed {len(all_transactions)}/{total_raw_transactions} transactions "
+            f"from {parsed_files} files (date range: {date_info})"
+        )
+    else:
+        # No date filter - show normalization ratio
+        console.print(
+            f"Parsed {len(all_transactions)}/{total_raw_transactions} transactions "
+            f"from {parsed_files} files"
+        )
 
     if not all_transactions:
         console.print("[yellow]No transactions found.[/yellow]")
