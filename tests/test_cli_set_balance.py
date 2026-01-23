@@ -1,6 +1,7 @@
 """Tests for set_balance_command CLI function."""
 
-from datetime import date, timedelta
+from datetime import date as real_date
+from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -48,28 +49,28 @@ class TestSetBalanceCommand:
             result = set_balance_command(
                 account_id="checking",
                 balance_amount="1234.56",
-                balance_date=date(2024, 1, 15),
+                balance_date=real_date(2024, 1, 15),
                 accounts_path=None,
                 config_dir=temp_config_dir,
             )
 
             assert result == 0
             assert mock_config.accounts["checking"].opening_balance == Decimal("1234.56")
-            assert mock_config.accounts["checking"].opening_balance_date == date(2024, 1, 15)
+            assert mock_config.accounts["checking"].opening_balance_date == real_date(2024, 1, 15)
             mock_save.assert_called_once()
 
     def test_valid_balance_defaults_to_today(
         self, mock_config: MagicMock, temp_config_dir: Path
     ) -> None:
         """Test that balance date defaults to today when not specified."""
-        fixed_today = date(2024, 6, 15)
+        fixed_today = real_date(2024, 6, 15)
         with (
             patch("financial_consolidator.cli.load_config", return_value=mock_config),
             patch("financial_consolidator.cli.save_accounts"),
             patch("financial_consolidator.cli.date") as mock_date,
         ):
             mock_date.today.return_value = fixed_today
-            mock_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
+            mock_date.side_effect = lambda *args, **kwargs: real_date(*args, **kwargs)
             result = set_balance_command(
                 account_id="checking",
                 balance_amount="500.00",
@@ -86,7 +87,7 @@ class TestSetBalanceCommand:
         result = set_balance_command(
             account_id="checking",
             balance_amount="not-a-number",
-            balance_date=date(2024, 1, 15),
+            balance_date=real_date(2024, 1, 15),
             accounts_path=None,
             config_dir=temp_config_dir,
         )
@@ -98,7 +99,7 @@ class TestSetBalanceCommand:
         result = set_balance_command(
             account_id="checking",
             balance_amount="inf",
-            balance_date=date(2024, 1, 15),
+            balance_date=real_date(2024, 1, 15),
             accounts_path=None,
             config_dir=temp_config_dir,
         )
@@ -110,7 +111,7 @@ class TestSetBalanceCommand:
         result = set_balance_command(
             account_id="checking",
             balance_amount="nan",
-            balance_date=date(2024, 1, 15),
+            balance_date=real_date(2024, 1, 15),
             accounts_path=None,
             config_dir=temp_config_dir,
         )
@@ -119,23 +120,27 @@ class TestSetBalanceCommand:
 
     def test_future_date_rejected(self, temp_config_dir: Path) -> None:
         """Test that future dates are rejected."""
-        future_date = date.today() + timedelta(days=1)
-        result = set_balance_command(
-            account_id="checking",
-            balance_amount="100.00",
-            balance_date=future_date,
-            accounts_path=None,
-            config_dir=temp_config_dir,
-        )
+        fixed_today = real_date(2024, 6, 15)
+        future_date = real_date(2024, 6, 16)
+        with patch("financial_consolidator.cli.date") as mock_date:
+            mock_date.today.return_value = fixed_today
+            mock_date.side_effect = lambda *args, **kwargs: real_date(*args, **kwargs)
+            result = set_balance_command(
+                account_id="checking",
+                balance_amount="100.00",
+                balance_date=future_date,
+                accounts_path=None,
+                config_dir=temp_config_dir,
+            )
 
-        assert result == 1
+            assert result == 1
 
     def test_date_before_1970_rejected(self, temp_config_dir: Path) -> None:
         """Test that dates before Unix epoch (1970) are rejected."""
         result = set_balance_command(
             account_id="checking",
             balance_amount="100.00",
-            balance_date=date(1969, 12, 31),
+            balance_date=real_date(1969, 12, 31),
             accounts_path=None,
             config_dir=temp_config_dir,
         )
@@ -153,13 +158,13 @@ class TestSetBalanceCommand:
             result = set_balance_command(
                 account_id="checking",
                 balance_amount="100.00",
-                balance_date=date(1970, 1, 1),
+                balance_date=real_date(1970, 1, 1),
                 accounts_path=None,
                 config_dir=temp_config_dir,
             )
 
             assert result == 0
-            assert mock_config.accounts["checking"].opening_balance_date == date(1970, 1, 1)
+            assert mock_config.accounts["checking"].opening_balance_date == real_date(1970, 1, 1)
 
     def test_account_not_found(
         self, mock_config: MagicMock, temp_config_dir: Path
@@ -169,7 +174,7 @@ class TestSetBalanceCommand:
             result = set_balance_command(
                 account_id="nonexistent",
                 balance_amount="100.00",
-                balance_date=date(2024, 1, 15),
+                balance_date=real_date(2024, 1, 15),
                 accounts_path=None,
                 config_dir=temp_config_dir,
             )
@@ -185,7 +190,7 @@ class TestSetBalanceCommand:
             result = set_balance_command(
                 account_id="checking",
                 balance_amount="100.00",
-                balance_date=date(2024, 1, 15),
+                balance_date=real_date(2024, 1, 15),
                 accounts_path=None,
                 config_dir=temp_config_dir,
             )
@@ -203,7 +208,7 @@ class TestSetBalanceCommand:
             result = set_balance_command(
                 account_id="checking",
                 balance_amount="-500.00",
-                balance_date=date(2024, 1, 15),
+                balance_date=real_date(2024, 1, 15),
                 accounts_path=None,
                 config_dir=temp_config_dir,
             )
@@ -222,7 +227,7 @@ class TestSetBalanceCommand:
             result = set_balance_command(
                 account_id="checking",
                 balance_amount="100.999",
-                balance_date=date(2024, 1, 15),
+                balance_date=real_date(2024, 1, 15),
                 accounts_path=None,
                 config_dir=temp_config_dir,
             )
@@ -242,7 +247,7 @@ class TestSetBalanceCommand:
             result = set_balance_command(
                 account_id="checking",
                 balance_amount="0",
-                balance_date=date(2024, 1, 15),
+                balance_date=real_date(2024, 1, 15),
                 accounts_path=None,
                 config_dir=temp_config_dir,
             )
@@ -264,7 +269,7 @@ class TestSetBalanceCommand:
             result = set_balance_command(
                 account_id="checking",
                 balance_amount="100.00",
-                balance_date=date(2024, 1, 15),
+                balance_date=real_date(2024, 1, 15),
                 accounts_path=None,
                 config_dir=temp_config_dir,
             )
@@ -282,10 +287,10 @@ class TestSetBalanceCommand:
             result = set_balance_command(
                 account_id="checking",
                 balance_amount="100.00",
-                balance_date=date(2024, 2, 29),  # 2024 is a leap year
+                balance_date=real_date(2024, 2, 29),  # 2024 is a leap year
                 accounts_path=None,
                 config_dir=temp_config_dir,
             )
 
             assert result == 0
-            assert mock_config.accounts["checking"].opening_balance_date == date(2024, 2, 29)
+            assert mock_config.accounts["checking"].opening_balance_date == real_date(2024, 2, 29)
