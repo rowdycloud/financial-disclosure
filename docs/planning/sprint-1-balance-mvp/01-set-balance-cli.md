@@ -1,6 +1,9 @@
 # Task: Add --set-balance CLI Command
 
+> **Status:** ✅ Complete (PR #6)
+
 ## Objective
+
 Add a CLI command to set opening balance for accounts in accounts.yaml.
 
 ## Usage

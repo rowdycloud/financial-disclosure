@@ -3,6 +3,7 @@
 import argparse
 import sys
 from datetime import date, datetime
+from decimal import Decimal
 from pathlib import Path
 
 import yaml
@@ -805,6 +806,169 @@ def set_balance_command(
     return 0
 
 
+def _apply_default_balance(
+    account: Account,
+    console: Console,
+    fallback_date: date,
+    zero_balance: Decimal,
+) -> None:
+    """Apply default $0.00 balance when inference fails."""
+    account.opening_balance = zero_balance
+    account.opening_balance_date = fallback_date
+    console.print(
+        f"  [yellow]{account.id}: Could not infer balance, defaulting to $0.00[/yellow]"
+    )
+
+
+def infer_opening_balances(
+    config: Config,
+    all_transactions: list,
+    console: Console,
+) -> int:
+    """Infer opening balances for accounts without explicit balances.
+
+    For accounts where opening_balance is None, attempts to infer from
+    the first transaction's CSV balance column:
+        inferred_balance = first_txn.raw_data.balance - first_txn.amount
+
+    Args:
+        config: Application configuration with accounts.
+        all_transactions: All parsed transactions.
+        console: Rich console for output.
+
+    Returns:
+        Number of accounts where balance was inferred.
+    """
+    from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+
+    # Validation constants (same as set_balance_command)
+    today = date.today()
+    min_date = date(1970, 1, 1)
+    max_balance = Decimal("1000000000000")  # +/- 1 trillion
+    zero_balance = Decimal("0")
+
+    # Find accounts needing inference
+    accounts_with_transactions = {t.account_id for t in all_transactions}
+    accounts_needing_inference = [
+        acc
+        for acc in config.accounts.values()
+        if acc.opening_balance is None and acc.id in accounts_with_transactions
+    ]
+
+    if not accounts_needing_inference:
+        return 0
+
+    console.print("\n[bold]Inferring opening balances...[/bold]")
+    inferred_count = 0
+
+    for account in accounts_needing_inference:
+        # Get transactions for this account, sorted chronologically
+        # Use same sort key as balance_calculator for consistency
+        account_txns = [t for t in all_transactions if t.account_id == account.id]
+        account_txns.sort(
+            key=lambda t: (
+                t.date,
+                t.description,
+                t.amount,
+                t.source_file,
+                t.source_line or 0,
+            )
+        )
+
+        first_txn = account_txns[0] if account_txns else None
+
+        if first_txn is None:
+            # No transactions - cannot infer
+            _apply_default_balance(account, console, today, zero_balance)
+            inferred_count += 1
+            continue
+
+        # Get raw balance from the original CSV data (preserved in raw_data).
+        # This assumes CSV balance column shows balance AFTER the transaction
+        # is applied (most common format). If a bank's CSV shows balance BEFORE
+        # the transaction, users should use --set-balance to correct.
+        if first_txn.raw_data is None or first_txn.raw_data.balance is None:
+            # No balance data in CSV - default to zero
+            _apply_default_balance(account, console, first_txn.date, zero_balance)
+            inferred_count += 1
+            continue
+
+        raw_balance = first_txn.raw_data.balance
+
+        # Validate raw balance is usable
+        if not raw_balance.is_finite():
+            _apply_default_balance(account, console, first_txn.date, zero_balance)
+            inferred_count += 1
+            continue
+
+        # Infer: opening = first_balance - first_amount
+        try:
+            inferred = raw_balance - first_txn.amount
+        except (InvalidOperation, OverflowError):
+            _apply_default_balance(account, console, first_txn.date, zero_balance)
+            inferred_count += 1
+            continue
+
+        # Validate inferred balance
+        if not inferred.is_finite():
+            console.print(
+                f"  [yellow]{account.id}: Inferred balance invalid (inf/NaN), "
+                f"defaulting to $0.00[/yellow]"
+            )
+            _apply_default_balance(account, console, first_txn.date, zero_balance)
+            inferred_count += 1
+            continue
+
+        if abs(inferred) > max_balance:
+            console.print(
+                f"  [yellow]{account.id}: Inferred balance exceeds limit "
+                f"(${inferred:,.2f}), defaulting to $0.00[/yellow]"
+            )
+            _apply_default_balance(account, console, first_txn.date, zero_balance)
+            inferred_count += 1
+            continue
+
+        # Round to 2 decimal places
+        try:
+            inferred = inferred.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        except InvalidOperation:
+            _apply_default_balance(account, console, first_txn.date, zero_balance)
+            inferred_count += 1
+            continue
+
+        # Validate balance date
+        balance_date = first_txn.date
+        if balance_date < min_date:
+            balance_date = min_date
+        elif balance_date > today:
+            balance_date = today
+
+        # Apply inferred balance
+        account.opening_balance = inferred
+        account.opening_balance_date = balance_date
+        inferred_count += 1
+
+        # Format for display
+        if inferred < 0:
+            formatted = f"-${abs(inferred):,.2f}"
+        else:
+            formatted = f"${inferred:,.2f}"
+
+        console.print(
+            f"  [dim]Inferred {account.id}: {formatted} "
+            f"as of {balance_date.isoformat()}[/dim]"
+        )
+
+        # Extra note for liability accounts
+        if account.account_type in (AccountType.CREDIT_CARD, AccountType.LOAN):
+            console.print(
+                f"    [dim]Note: Verify credit/loan balance sign matches "
+                f"your statement[/dim]"
+            )
+
+    return inferred_count
+
+
 def import_corrections_command(
     import_path: Path,
     corrections_path: Path,
@@ -1453,6 +1617,9 @@ def main() -> int:
         console.print("[yellow]No transactions found.[/yellow]")
         return 0
 
+    # Phase 2.5: Infer opening balances for accounts that need it
+    inferred_count = infer_opening_balances(config, all_transactions, console)
+
     # Process transactions
     with console.status("[bold green]Categorizing transactions..."):
         categorizer.categorize(all_transactions)
@@ -1572,10 +1739,16 @@ def main() -> int:
         errors=error_list,
     )
 
-    # Save any account mappings if interactive mode was used
-    if not args.no_interactive and config.accounts:
+    # Save account updates (from interactive prompts or balance inference).
+    # In non-interactive mode, only save if inference occurred - no other
+    # account modifications happen in that mode.
+    if config.accounts and (not args.no_interactive or inferred_count > 0):
         accounts_path = args.accounts or (args.config_dir / "accounts.yaml")
-        save_accounts(accounts_path, config)
+        try:
+            save_accounts(accounts_path, config)
+        except OSError as e:
+            console.print(f"[red]Error saving accounts: {e}[/red]")
+            return 1
 
     return 0
 

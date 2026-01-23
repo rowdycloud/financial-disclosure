@@ -1,6 +1,10 @@
 # Task: Add Post-Parsing Balance Inference (Stage B)
 
+> **Status:** 🔲 Pending
+> **Prerequisite:** Task 02 complete (PR #7) - `opening_balance: Decimal | None` type now in place
+
 ## Objective
+
 After file parsing, infer opening balance for accounts where it wasn't set during interactive prompts.
 
 ## Location
@@ -95,10 +99,18 @@ save_accounts(accounts_path, config)
 Balance inference works best for asset accounts (checking/savings). For liability accounts (credit cards), the "balance" column semantics may differ by bank. If inference produces unexpected results, users should use `--set-balance` to correct.
 
 ## Verification
+
 1. Create new account with blank balance (leave opening balance empty during prompts)
 2. Ensure test CSV has a "Balance" column with values
 3. Run processing: `PYTHONPATH=src python -c "from financial_consolidator.cli import main; main()" -i ./test_data -o ./output.xlsx`
 4. Verify log shows "Inferred opening balance for {account}: ${amount}"
 5. Verify accounts.yaml now contains opening_balance and opening_balance_date
 6. Verify the math: opening_balance = first_balance - first_amount
-7. Run existing tests: all 37 tests pass
+7. Run existing tests: all 52 tests pass (updated from 37)
+
+## Alignment Notes (from Task 02)
+
+- Task 02 changed `opening_balance` type to `Decimal | None` - this task correctly checks `is None`
+- Config serialization: None values NOT saved to YAML (on reload becomes None, triggering inference)
+- **Apply same validation as Task 02**: ±$1 trillion max, dates ≥1970-01-01, not in future
+- Inferred values should be rounded to 2 decimals with ROUND_HALF_UP

@@ -1,5 +1,7 @@
 # Task: Add Interactive Balance Prompt (Stage A)
 
+> **Status:** ✅ Complete (PR #7)
+
 ## Objective
 During interactive account creation, prompt user for opening balance.
 
@@ -72,4 +74,31 @@ File parsing hasn't happened yet at this stage. The interactive prompts occur in
 3. Enter a value (e.g., "5234.56") → confirm opening_balance saved to accounts.yaml
 4. Enter blank → confirm opening_balance field is NOT in accounts.yaml (None)
 5. Enter "0" → confirm opening_balance: '0' appears in accounts.yaml
-6. Run existing tests: all 37 tests pass
+6. Run existing tests: all 52 tests pass
+
+---
+
+## Implementation Summary (PR #7)
+
+### Files Modified
+| File | Changes |
+|------|---------|
+| cli.py | Added balance prompt logic (lines 421-508), added max_balance validation to set_balance_command (lines 706-711) |
+| account.py | Changed opening_balance type from `Decimal` to `Decimal \| None` (line 49) |
+| config.py | Updated serialization to handle None opening_balance (lines 754-760) |
+
+### Key Behavior
+| User Input | opening_balance | opening_balance_date | Saved to YAML? |
+|------------|-----------------|----------------------|----------------|
+| "5234.56" | Decimal("5234.56") | date/today | Yes |
+| "" (blank) | None | None | No (auto-detect signal) |
+| "0" | Decimal("0") | date/today | Yes (explicit zero) |
+
+### Validation Added
+- Balance: Finite number, ±$1 trillion max, rounded to 2 decimals with ROUND_HALF_UP
+- Date: Must be 1970-01-01 or later, not in future
+- Warnings: Negative balance, rounding notification
+
+### Tests
+- All 52 existing tests pass
+- Cubic review returns no issues
