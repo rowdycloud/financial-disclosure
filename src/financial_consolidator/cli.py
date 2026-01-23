@@ -632,19 +632,28 @@ def set_balance_command(
             "This is valid for credit cards and lines of credit.[/yellow]"
         )
 
+    # Capture today's date once for consistent validation
+    today = date.today()
+
     # Use today's date if not specified
     if balance_date is None:
-        balance_date = date.today()
+        balance_date = today
+        console.print(
+            f"[dim]Using today's date ({today.isoformat()}) for balance date. "
+            "Use --balance-date to specify a different date.[/dim]"
+        )
 
     # Validate balance date is not unreasonably old
-    min_date = date(2000, 1, 1)
+    # Unix epoch (1970) prevents obvious typos like 1924 instead of 2024
+    # while still allowing legitimate historical data from the computing era
+    min_date = date(1970, 1, 1)
     if balance_date < min_date:
         console.print(f"[red]Error: Balance date too old: {balance_date}[/red]")
         console.print(f"[dim]Balance date must be {min_date.isoformat()} or later[/dim]")
         return 1
 
     # Validate balance date is not in the future
-    if balance_date > date.today():
+    if balance_date > today:
         console.print(f"[red]Error: Balance date cannot be in the future: {balance_date}[/red]")
         console.print("[dim]Opening balance date must be today or earlier[/dim]")
         return 1
