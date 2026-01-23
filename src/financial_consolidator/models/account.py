@@ -46,7 +46,8 @@ class Account:
     account_number_masked: str | None = None
 
     # Balance tracking
-    opening_balance: Decimal = field(default_factory=lambda: Decimal("0"))
+    # None = auto-detect from transactions, Decimal("0") = explicit zero
+    opening_balance: Decimal | None = None
     opening_balance_date: date | None = None
     current_balance: Decimal | None = None
 
@@ -92,7 +93,7 @@ class Account:
         except ValueError:
             account_type = AccountType.OTHER
 
-        opening_balance = Decimal("0")
+        opening_balance: Decimal | None = None
         if "opening_balance" in data:
             opening_balance = Decimal(str(data["opening_balance"]))
 

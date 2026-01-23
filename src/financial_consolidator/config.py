@@ -751,14 +751,13 @@ def save_accounts(path: Path, config: Config) -> None:
             accounts_dict[account.id]["institution"] = account.institution
         if account.account_number_masked:
             accounts_dict[account.id]["account_number_masked"] = account.account_number_masked
-        # Write balance fields: date indicates explicitly set via CLI,
-        # non-zero balance alone preserves backward compatibility for manual edits
-        if account.opening_balance_date is not None:
+        # Write balance fields:
+        # - None = auto-detect from transactions (field not saved, becomes None on reload)
+        # - Decimal value (including 0) = explicit balance (always saved to preserve user intent)
+        if account.opening_balance is not None:
             accounts_dict[account.id]["opening_balance"] = str(account.opening_balance)
-            accounts_dict[account.id]["opening_balance_date"] = account.opening_balance_date.isoformat()
-        elif account.opening_balance != Decimal("0"):
-            # Backward compatibility: preserve non-zero balance without date
-            accounts_dict[account.id]["opening_balance"] = str(account.opening_balance)
+            if account.opening_balance_date is not None:
+                accounts_dict[account.id]["opening_balance_date"] = account.opening_balance_date.isoformat()
         if account.source_file_patterns:
             accounts_dict[account.id]["source_file_patterns"] = account.source_file_patterns
         if account.display_order:

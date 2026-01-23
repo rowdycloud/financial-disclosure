@@ -418,11 +418,104 @@ def prompt_for_account(filename: str, config: Config) -> Account | None:
             except ValueError:
                 console.print("[red]Please enter a number.[/red]")
 
+        # Prompt for opening balance
+        from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+
+        console.print("\n[bold]Opening Balance[/bold]")
+        console.print("[dim]Enter the balance as of the first transaction date.[/dim]")
+        console.print(
+            "[dim]Leave blank to auto-detect from transaction data, or enter 0 to start fresh.[/dim]"
+        )
+        balance_input = console.input("Opening balance: $").strip()
+
+        opening_balance: Decimal | None = None
+        opening_balance_date: date | None = None
+        today = date.today()
+        # Unix epoch prevents obvious typos like 1924 instead of 2024
+        # while still allowing legitimate historical data from the computing era
+        min_date = date(1970, 1, 1)
+        # Maximum balance magnitude (±1 trillion) for practical financial data
+        max_balance = Decimal("1000000000000")
+
+        if balance_input:
+            try:
+                opening_balance = Decimal(balance_input)
+                # Validate it's a finite number
+                if not opening_balance.is_finite():
+                    console.print(
+                        "[yellow]Invalid balance (infinity/NaN), will calculate from transactions[/yellow]"
+                    )
+                    opening_balance = None
+                # Validate balance is within reasonable range
+                elif abs(opening_balance) > max_balance:
+                    console.print(
+                        "[yellow]Balance exceeds maximum (±$1 trillion), will calculate from transactions[/yellow]"
+                    )
+                    opening_balance = None
+                else:
+                    # Normalize to 2 decimal places
+                    original_balance = opening_balance
+                    try:
+                        opening_balance = opening_balance.quantize(
+                            Decimal("0.01"), rounding=ROUND_HALF_UP
+                        )
+                    except InvalidOperation:
+                        console.print(
+                            "[yellow]Balance value too large, will calculate from transactions[/yellow]"
+                        )
+                        opening_balance = None
+                    if opening_balance is not None:
+                        # Notify user if rounding occurred
+                        if opening_balance != original_balance:
+                            console.print(
+                                f"[yellow]Note: Balance rounded to 2 decimal places: "
+                                f"{original_balance} → {opening_balance}[/yellow]"
+                            )
+                        # Warn about negative balances
+                        if opening_balance < 0:
+                            console.print(
+                                "[yellow]Note: Negative opening balance entered. "
+                                "This is valid for credit cards and lines of credit.[/yellow]"
+                            )
+                        # Prompt for date
+                        date_input = console.input(
+                            "Balance date (YYYY-MM-DD, blank for today): "
+                        ).strip()
+                        if date_input:
+                            try:
+                                opening_balance_date = date.fromisoformat(date_input)
+                                if opening_balance_date < min_date:
+                                    console.print(
+                                        f"[yellow]Date too old, must be {min_date.isoformat()} or later. "
+                                        f"Using today.[/yellow]"
+                                    )
+                                    opening_balance_date = today
+                                elif opening_balance_date > today:
+                                    console.print(
+                                        "[yellow]Date in future, using today[/yellow]"
+                                    )
+                                    opening_balance_date = today
+                            except ValueError:
+                                console.print(
+                                    "[yellow]Invalid date format, using today[/yellow]"
+                                )
+                                opening_balance_date = today
+                        else:
+                            opening_balance_date = today
+            except InvalidOperation:
+                console.print(
+                    "[yellow]Invalid input, will calculate from transactions[/yellow]"
+                )
+                opening_balance = None
+                opening_balance_date = None
+
         # Create account
         account = Account(
             id=account_id,
             name=account_name,
             account_type=account_type,
+            opening_balance=opening_balance,
+            opening_balance_date=opening_balance_date,
         )
         config.accounts[account_id] = account
         config.add_file_mapping(filename, account_id)
