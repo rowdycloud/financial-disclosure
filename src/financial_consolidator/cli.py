@@ -806,13 +806,13 @@ def set_balance_command(
     return 0
 
 
-def _apply_default_balance(
+def _apply_fallback_balance(
     account: Account,
     console: Console,
     fallback_date: date,
     zero_balance: Decimal,
 ) -> None:
-    """Apply default $0.00 balance when inference fails."""
+    """Apply $0.00 fallback balance when inference cannot determine a value."""
     account.opening_balance = zero_balance
     account.opening_balance_date = fallback_date
     console.print(
@@ -837,7 +837,8 @@ def infer_opening_balances(
         console: Rich console for output.
 
     Returns:
-        Number of accounts where balance was inferred.
+        Number of accounts where balance was successfully inferred.
+        Accounts that fell back to $0.00 are not included in this count.
     """
     from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
@@ -859,7 +860,8 @@ def infer_opening_balances(
         return 0
 
     console.print("\n[bold]Inferring opening balances...[/bold]")
-    inferred_count = 0
+    success_count = 0
+    fallback_count = 0
 
     for account in accounts_needing_inference:
         # Get transactions for this account, sorted chronologically
@@ -879,8 +881,8 @@ def infer_opening_balances(
 
         if first_txn is None:
             # No transactions - cannot infer
-            _apply_default_balance(account, console, today, zero_balance)
-            inferred_count += 1
+            _apply_fallback_balance(account, console, today, zero_balance)
+            fallback_count += 1
             continue
 
         # Get raw balance from the original CSV data (preserved in raw_data).
@@ -889,24 +891,39 @@ def infer_opening_balances(
         # the transaction, users should use --set-balance to correct.
         if first_txn.raw_data is None or first_txn.raw_data.balance is None:
             # No balance data in CSV - default to zero
-            _apply_default_balance(account, console, first_txn.date, zero_balance)
-            inferred_count += 1
+            _apply_fallback_balance(account, console, first_txn.date, zero_balance)
+            fallback_count += 1
             continue
 
         raw_balance = first_txn.raw_data.balance
 
-        # Validate raw balance is usable
+        # Validate raw balance is usable (finite and within range)
         if not raw_balance.is_finite():
-            _apply_default_balance(account, console, first_txn.date, zero_balance)
-            inferred_count += 1
+            _apply_fallback_balance(account, console, first_txn.date, zero_balance)
+            fallback_count += 1
+            continue
+
+        if abs(raw_balance) > max_balance:
+            console.print(
+                f"  [yellow]{account.id}: CSV balance exceeds limit, "
+                f"defaulting to $0.00[/yellow]"
+            )
+            _apply_fallback_balance(account, console, first_txn.date, zero_balance)
+            fallback_count += 1
+            continue
+
+        # Validate transaction amount is usable
+        if not first_txn.amount.is_finite():
+            _apply_fallback_balance(account, console, first_txn.date, zero_balance)
+            fallback_count += 1
             continue
 
         # Infer: opening = first_balance - first_amount
         try:
             inferred = raw_balance - first_txn.amount
         except (InvalidOperation, OverflowError):
-            _apply_default_balance(account, console, first_txn.date, zero_balance)
-            inferred_count += 1
+            _apply_fallback_balance(account, console, first_txn.date, zero_balance)
+            fallback_count += 1
             continue
 
         # Validate inferred balance
@@ -915,8 +932,8 @@ def infer_opening_balances(
                 f"  [yellow]{account.id}: Inferred balance invalid (inf/NaN), "
                 f"defaulting to $0.00[/yellow]"
             )
-            _apply_default_balance(account, console, first_txn.date, zero_balance)
-            inferred_count += 1
+            _apply_fallback_balance(account, console, first_txn.date, zero_balance)
+            fallback_count += 1
             continue
 
         if abs(inferred) > max_balance:
@@ -924,29 +941,37 @@ def infer_opening_balances(
                 f"  [yellow]{account.id}: Inferred balance exceeds limit "
                 f"(${inferred:,.2f}), defaulting to $0.00[/yellow]"
             )
-            _apply_default_balance(account, console, first_txn.date, zero_balance)
-            inferred_count += 1
+            _apply_fallback_balance(account, console, first_txn.date, zero_balance)
+            fallback_count += 1
             continue
 
         # Round to 2 decimal places
         try:
             inferred = inferred.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         except InvalidOperation:
-            _apply_default_balance(account, console, first_txn.date, zero_balance)
-            inferred_count += 1
+            _apply_fallback_balance(account, console, first_txn.date, zero_balance)
+            fallback_count += 1
             continue
 
         # Validate balance date
         balance_date = first_txn.date
         if balance_date < min_date:
+            console.print(
+                f"  [dim]{account.id}: Transaction date {balance_date} "
+                f"adjusted to {min_date}[/dim]"
+            )
             balance_date = min_date
         elif balance_date > today:
+            console.print(
+                f"  [dim]{account.id}: Future transaction date {balance_date} "
+                f"adjusted to {today}[/dim]"
+            )
             balance_date = today
 
         # Apply inferred balance
         account.opening_balance = inferred
         account.opening_balance_date = balance_date
-        inferred_count += 1
+        success_count += 1
 
         # Format for display
         if inferred < 0:
@@ -962,11 +987,18 @@ def infer_opening_balances(
         # Extra note for liability accounts
         if account.account_type in (AccountType.CREDIT_CARD, AccountType.LOAN):
             console.print(
-                f"    [dim]Note: Verify credit/loan balance sign matches "
-                f"your statement[/dim]"
+                f"    [yellow]Note: Credit card balances may use different sign "
+                f"conventions. If {formatted} seems wrong, use "
+                f"'--set-balance {account.id} <correct_amount>' to fix.[/yellow]"
             )
 
-    return inferred_count
+    # Summary of fallbacks
+    if fallback_count > 0:
+        console.print(
+            f"  [dim]({fallback_count} account(s) defaulted to $0.00)[/dim]"
+        )
+
+    return success_count
 
 
 def import_corrections_command(
