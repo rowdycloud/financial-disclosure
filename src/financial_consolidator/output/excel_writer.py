@@ -15,6 +15,7 @@ try:
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
     from openpyxl.utils import get_column_letter
+    from openpyxl.worksheet.datavalidation import DataValidation
 
     OPENPYXL_AVAILABLE = True
 except ImportError:
@@ -34,6 +35,18 @@ class ExcelWriter:
     - Category Analysis
     - Anomalies
     """
+
+    # Sheet name constants for formula references
+    SHEET_ALL_TRANSACTIONS = "All Transactions"
+
+    @staticmethod
+    def _txn_sort_key(txn: Transaction) -> tuple:
+        """Standard sort key for transactions (date, account, description).
+
+        Used across All Transactions, Review Queue, Deposits, and Transfers sheets
+        to ensure consistent row ordering.
+        """
+        return (txn.date, txn.account_name, txn.description)
 
     def __init__(self, config: Config):
         """Initialize Excel writer.
@@ -86,8 +99,10 @@ class ExcelWriter:
             wb.remove(wb.active)
 
         # Create sheets
+        self._create_category_lookup(wb)  # Must come first for VLOOKUP references
         self._create_pl_summary(wb, pl_summary)
         self._create_master_list(wb, transactions)
+        self._create_review_queue(wb, transactions)
         self._create_deposits_sheet(wb, transactions)
         self._create_transfers_sheet(wb, transactions)
         self._create_account_sheets(wb, transactions)
@@ -99,20 +114,69 @@ class ExcelWriter:
         wb.save(output_path)
         logger.info(f"Excel workbook saved: {output_path}")
 
-    def _create_pl_summary(
-        self, wb: "Workbook", pl_summary: PLSummary
-    ) -> None:
-        """Create P&L Summary sheet with year-by-year breakdown.
+    def _create_category_lookup(self, wb: "Workbook") -> None:
+        """Create hidden Category Lookup sheet for VLOOKUP and data validation.
 
         Args:
             wb: Workbook to add sheet to.
-            pl_summary: Pre-computed P&L summary data.
         """
-        from decimal import Decimal
+        ws = wb.create_sheet("Category Lookup")
 
+        # Headers
+        headers = ["Category Name", "Category Type"]
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col, value=header)
+            cell.font = self.header_font
+            cell.fill = self.header_fill
+
+        # Get all categories sorted by name
+        categories = sorted(
+            self.config.categories.values(),
+            key=lambda c: c.name
+        )
+
+        # Write category data
+        row = 2
+        for category in categories:
+            # Skip subcategories (those with parent_id)
+            if category.parent_id:
+                continue
+
+            ws.cell(row=row, column=1, value=category.name)
+            cat_type = category.category_type.value if category.category_type else ""
+            ws.cell(row=row, column=2, value=cat_type)
+            row += 1
+
+        # Adjust column widths
+        ws.column_dimensions["A"].width = 30
+        ws.column_dimensions["B"].width = 15
+
+        # Hide the sheet
+        # Use veryHidden to prevent users from unhiding and deleting this sheet,
+        # which would break VLOOKUP formulas in Category Type column
+        ws.sheet_state = "veryHidden"
+
+        logger.debug(f"Created Category Lookup sheet with {row - 2} categories")
+
+    def _create_pl_summary(
+        self, wb: "Workbook", pl_summary: PLSummary
+    ) -> None:
+        """Create P&L Summary sheet with year-by-year breakdown using SUMIFS formulas.
+
+        Uses formulas that reference 'All Transactions' sheet so that changes
+        to category assignments automatically update P&L totals.
+
+        Args:
+            wb: Workbook to add sheet to.
+            pl_summary: Pre-computed P&L summary data (used for structure/metadata).
+        """
         ws = wb.create_sheet("P&L Summary")
         years = pl_summary.years
         num_years = len(years)
+
+        # Column references in All Transactions sheet:
+        # F = Amount, D = Category, P = Category Type, Q = Year
+        txn_sheet = f"'{self.SHEET_ALL_TRANSACTIONS}'"
 
         row = 1
 
@@ -135,31 +199,45 @@ class ExcelWriter:
             cell.font = Font(bold=True)
         cell = ws.cell(row=row, column=num_years + 2, value="Total")
         cell.font = Font(bold=True)
+        income_header_row = row
         row += 1
 
-        # Income categories
+        # Income categories with SUMIFS formulas
+        income_start_row = row
         for cat in pl_summary.all_income_categories:
             ws.cell(row=row, column=1, value=sanitize_for_csv(cat))
-            total = Decimal("0")
             for i, year in enumerate(years):
-                amount = pl_summary.income_by_year.get(year, {}).get(cat, Decimal("0"))
-                cell = ws.cell(row=row, column=i + 2, value=float(amount))
+                # SUMIFS: Amount where Category Type = "income", Category = cat, Year = year
+                formula = (
+                    f"=SUMIFS({txn_sheet}!$F:$F,"
+                    f"{txn_sheet}!$P:$P,\"income\","
+                    f"{txn_sheet}!$D:$D,A{row},"
+                    f"{txn_sheet}!$Q:$Q,{year})"
+                )
+                cell = ws.cell(row=row, column=i + 2, value=formula)
                 cell.number_format = self._money_format()
-                total += amount
-            cell = ws.cell(row=row, column=num_years + 2, value=float(total))
+            # Total column: sum of year columns
+            year_cols = [get_column_letter(i + 2) for i in range(num_years)]
+            total_formula = f"=SUM({year_cols[0]}{row}:{year_cols[-1]}{row})" if year_cols else "=0"
+            cell = ws.cell(row=row, column=num_years + 2, value=total_formula)
             cell.number_format = self._money_format()
             row += 1
+        income_end_row = row - 1
 
-        # Total Income row
+        # Total Income row (sum of income category rows)
         ws.cell(row=row, column=1, value="Total Income")
         ws.cell(row=row, column=1).font = Font(bold=True)
-        for i, year in enumerate(years):
-            cell = ws.cell(row=row, column=i + 2, value=float(pl_summary.income_for_year(year)))
+        total_income_row = row
+        for i in range(num_years + 1):
+            col = i + 2
+            col_letter = get_column_letter(col)
+            if income_start_row <= income_end_row:
+                formula = f"=SUM({col_letter}{income_start_row}:{col_letter}{income_end_row})"
+            else:
+                formula = "=0"
+            cell = ws.cell(row=row, column=col, value=formula)
             cell.font = Font(bold=True)
             cell.number_format = self._money_format()
-        cell = ws.cell(row=row, column=num_years + 2, value=float(pl_summary.total_income))
-        cell.font = Font(bold=True)
-        cell.number_format = self._money_format()
         row += 2
 
         # Expense section header with year columns
@@ -172,41 +250,54 @@ class ExcelWriter:
         cell.font = Font(bold=True)
         row += 1
 
-        # Expense categories
+        # Expense categories with SUMIFS formulas (negate to show positive)
+        expense_start_row = row
         for cat in pl_summary.all_expense_categories:
             ws.cell(row=row, column=1, value=sanitize_for_csv(cat))
-            total = Decimal("0")
             for i, year in enumerate(years):
-                amount = pl_summary.expense_by_year.get(year, {}).get(cat, Decimal("0"))
-                cell = ws.cell(row=row, column=i + 2, value=float(amount))
+                # Negate SUMIFS since expenses are stored as negative amounts
+                formula = (
+                    f"=-SUMIFS({txn_sheet}!$F:$F,"
+                    f"{txn_sheet}!$P:$P,\"expense\","
+                    f"{txn_sheet}!$D:$D,A{row},"
+                    f"{txn_sheet}!$Q:$Q,{year})"
+                )
+                cell = ws.cell(row=row, column=i + 2, value=formula)
                 cell.number_format = self._money_format()
-                total += amount
-            cell = ws.cell(row=row, column=num_years + 2, value=float(total))
+            # Total column
+            year_cols = [get_column_letter(i + 2) for i in range(num_years)]
+            total_formula = f"=SUM({year_cols[0]}{row}:{year_cols[-1]}{row})" if year_cols else "=0"
+            cell = ws.cell(row=row, column=num_years + 2, value=total_formula)
             cell.number_format = self._money_format()
             row += 1
+        expense_end_row = row - 1
 
         # Total Expenses row
         ws.cell(row=row, column=1, value="Total Expenses")
         ws.cell(row=row, column=1).font = Font(bold=True)
-        for i, year in enumerate(years):
-            cell = ws.cell(row=row, column=i + 2, value=float(pl_summary.expenses_for_year(year)))
+        total_expense_row = row
+        for i in range(num_years + 1):
+            col = i + 2
+            col_letter = get_column_letter(col)
+            if expense_start_row <= expense_end_row:
+                formula = f"=SUM({col_letter}{expense_start_row}:{col_letter}{expense_end_row})"
+            else:
+                formula = "=0"
+            cell = ws.cell(row=row, column=col, value=formula)
             cell.font = Font(bold=True)
             cell.number_format = self._money_format()
-        cell = ws.cell(row=row, column=num_years + 2, value=float(pl_summary.total_expenses))
-        cell.font = Font(bold=True)
-        cell.number_format = self._money_format()
         row += 2
 
-        # Net income row
+        # Net income row (Total Income - Total Expenses)
         ws.cell(row=row, column=1, value="NET INCOME")
         ws.cell(row=row, column=1).font = Font(bold=True, size=12)
-        for i, year in enumerate(years):
-            cell = ws.cell(row=row, column=i + 2, value=float(pl_summary.net_income_for_year(year)))
+        for i in range(num_years + 1):
+            col = i + 2
+            col_letter = get_column_letter(col)
+            formula = f"={col_letter}{total_income_row}-{col_letter}{total_expense_row}"
+            cell = ws.cell(row=row, column=col, value=formula)
             cell.font = Font(bold=True, size=12)
             cell.number_format = self._money_format()
-        cell = ws.cell(row=row, column=num_years + 2, value=float(pl_summary.net_income))
-        cell.font = Font(bold=True, size=12)
-        cell.number_format = self._money_format()
         row += 3
 
         # Transfers memo section
@@ -222,26 +313,39 @@ class ExcelWriter:
         ws.cell(row=row, column=1).font = Font(italic=True, color="666666")
         row += 1
 
-        # Transfer categories
+        # Transfer categories with SUMIFS formulas
+        transfer_start_row = row
         for cat in pl_summary.all_transfer_categories:
             ws.cell(row=row, column=1, value=sanitize_for_csv(cat))
-            total = Decimal("0")
             for i, year in enumerate(years):
-                amount = pl_summary.transfer_by_year.get(year, {}).get(cat, Decimal("0"))
-                cell = ws.cell(row=row, column=i + 2, value=float(amount))
+                # Transfers: use ABS to show absolute value
+                formula = (
+                    f"=ABS(SUMIFS({txn_sheet}!$F:$F,"
+                    f"{txn_sheet}!$P:$P,\"transfer\","
+                    f"{txn_sheet}!$D:$D,A{row},"
+                    f"{txn_sheet}!$Q:$Q,{year}))"
+                )
+                cell = ws.cell(row=row, column=i + 2, value=formula)
                 cell.number_format = self._money_format()
-                total += amount
-            cell = ws.cell(row=row, column=num_years + 2, value=float(total))
+            # Total column
+            year_cols = [get_column_letter(i + 2) for i in range(num_years)]
+            total_formula = f"=SUM({year_cols[0]}{row}:{year_cols[-1]}{row})" if year_cols else "=0"
+            cell = ws.cell(row=row, column=num_years + 2, value=total_formula)
             cell.number_format = self._money_format()
             row += 1
+        transfer_end_row = row - 1
 
         # Total Transfers row
         ws.cell(row=row, column=1, value="Total Transfers")
-        for i, year in enumerate(years):
-            cell = ws.cell(row=row, column=i + 2, value=float(pl_summary.transfers_for_year(year)))
+        for i in range(num_years + 1):
+            col = i + 2
+            col_letter = get_column_letter(col)
+            if transfer_start_row <= transfer_end_row:
+                formula = f"=SUM({col_letter}{transfer_start_row}:{col_letter}{transfer_end_row})"
+            else:
+                formula = "=0"
+            cell = ws.cell(row=row, column=col, value=formula)
             cell.number_format = self._money_format()
-        cell = ws.cell(row=row, column=num_years + 2, value=float(pl_summary.total_transfers))
-        cell.number_format = self._money_format()
 
         # Adjust column widths
         ws.column_dimensions["A"].width = 40
@@ -257,13 +361,14 @@ class ExcelWriter:
             wb: Workbook to add sheet to.
             transactions: Transaction data.
         """
-        ws = wb.create_sheet("All Transactions")
+        ws = wb.create_sheet(self.SHEET_ALL_TRANSACTIONS)
 
-        # Headers with confidence scoring columns
+        # Headers with confidence scoring columns, fingerprint, and formula columns
         headers = [
             "Date", "Account", "Description", "Category", "Sub-category",
             "Amount", "Balance", "Source File", "Duplicate Flag", "Uncategorized Flag",
-            "Confidence", "Matched Pattern", "Category Source", "Confidence Factors"
+            "Confidence", "Matched Pattern", "Category Source", "Confidence Factors",
+            "Fingerprint", "Category Type", "Year", "Year-Month"
         ]
 
         # Write headers
@@ -275,7 +380,7 @@ class ExcelWriter:
 
         # Sort transactions by date, then account
         sorted_txns = sorted(
-            transactions, key=lambda t: (t.date, t.account_name, t.description)
+            transactions, key=self._txn_sort_key
         )
 
         # Conditional formatting colors for confidence
@@ -326,13 +431,141 @@ class ExcelWriter:
             factors_str = "; ".join(txn.confidence_factors) if txn.confidence_factors else ""
             ws.cell(row=row, column=14, value=sanitize_for_csv(factors_str))
 
+            # Fingerprint for correction matching
+            ws.cell(row=row, column=15, value=txn.fingerprint)
+
+            # Category Type formula (VLOOKUP from Category Lookup sheet)
+            # D column = Category, lookup returns type from column B of Category Lookup
+            ws.cell(row=row, column=16, value=f"=IFERROR(VLOOKUP(D{row},'Category Lookup'!$A:$B,2,FALSE),\"\")")
+
+            # Year formula from Date column
+            ws.cell(row=row, column=17, value=f"=YEAR(A{row})")
+
+            # Year-Month formula for Category Analysis (e.g., "2023-01")
+            ws.cell(row=row, column=18, value=f"=TEXT(A{row},\"YYYY-MM\")")
+
         # Adjust column widths
-        widths = [12, 25, 40, 20, 20, 12, 12, 25, 12, 15, 10, 20, 12, 40]
+        widths = [12, 25, 40, 20, 20, 12, 12, 25, 12, 15, 10, 20, 12, 40, 18, 14, 8, 10]
+        for i, width in enumerate(widths, 1):
+            ws.column_dimensions[get_column_letter(i)].width = width
+
+        # Add data validation dropdown on Category column (D)
+        # Reference category names from Category Lookup sheet
+        num_categories = len([c for c in self.config.categories.values() if not c.parent_id])
+        if num_categories > 0 and len(sorted_txns) > 0:
+            dv = DataValidation(
+                type="list",
+                formula1=f"'Category Lookup'!$A$2:$A${num_categories + 1}",
+                allow_blank=True,
+                showDropDown=False,  # False means show the dropdown arrow
+            )
+            dv.error = "Please select a valid category from the list"
+            dv.errorTitle = "Invalid Category"
+            dv.prompt = "Select a category"
+            dv.promptTitle = "Category"
+            # Apply to all data rows in the Category column
+            dv.add(f"D2:D{len(sorted_txns) + 1}")
+            ws.add_data_validation(dv)
+
+        # Freeze header row
+        ws.freeze_panes = "A2"
+
+    def _create_review_queue(
+        self, wb: "Workbook", transactions: list[Transaction]
+    ) -> None:
+        """Create Review Queue sheet sorted by confidence score (lowest first).
+
+        This sheet helps users prioritize manual review of transactions by showing
+        those with the lowest confidence scores at the top. Includes a reference
+        to the row number in All Transactions for easy lookup.
+
+        Args:
+            wb: Workbook to add sheet to.
+            transactions: Transaction data.
+        """
+        ws = wb.create_sheet("Review Queue")
+
+        # Conditional formatting colors for confidence
+        low_conf_fill = PatternFill(start_color="FFCCCC", end_color="FFCCCC", fill_type="solid")
+        med_conf_fill = PatternFill(start_color="FFFFCC", end_color="FFFFCC", fill_type="solid")
+        high_conf_fill = PatternFill(start_color="CCFFCC", end_color="CCFFCC", fill_type="solid")
+
+        # Headers
+        headers = [
+            "Txn Row#", "Date", "Account", "Description", "Category",
+            "Amount", "Confidence", "Matched Pattern", "Category Source",
+            "Confidence Factors", "Fingerprint"
+        ]
+
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col, value=header)
+            cell.font = self.header_font
+            cell.fill = self.header_fill
+            cell.alignment = self.centered
+
+        # Sort transactions by confidence score (lowest first), then by date
+        # We need to track the original row numbers in All Transactions
+        # All Transactions is sorted by: date, account_name, description
+        sorted_for_master = sorted(
+            transactions, key=self._txn_sort_key
+        )
+
+        # Create a mapping of transaction ID to row number in All Transactions.
+        # Use txn.id (UUID) for row mapping because identical transactions intentionally
+        # share fingerprints (by design for correction matching), but each needs its own
+        # row reference in the spreadsheet.
+        txn_row_map = {txn.id: idx + 2 for idx, txn in enumerate(sorted_for_master)}
+
+        # Sort by confidence score (lowest first) for review queue
+        sorted_for_review = sorted(
+            transactions, key=lambda t: (t.confidence_score, t.date, t.account_name)
+        )
+
+        # Write data
+        for row, txn in enumerate(sorted_for_review, 2):
+            # Row number in All Transactions (for reference)
+            all_txn_row = txn_row_map.get(txn.id, "")
+            ws.cell(row=row, column=1, value=all_txn_row)
+
+            ws.cell(row=row, column=2, value=txn.date)
+            ws.cell(row=row, column=3, value=sanitize_for_csv(txn.account_name))
+            ws.cell(row=row, column=4, value=sanitize_for_csv(txn.description))
+            ws.cell(row=row, column=5, value=sanitize_for_csv(self._get_category_name(txn.category)))
+
+            amount_cell = ws.cell(row=row, column=6, value=float(txn.amount))
+            amount_cell.number_format = self._money_format()
+            if txn.amount < 0:
+                amount_cell.font = self.money_negative
+            else:
+                amount_cell.font = self.money_positive
+
+            # Confidence score with conditional formatting
+            conf_cell = ws.cell(row=row, column=7, value=txn.confidence_score)
+            conf_cell.number_format = "0.00"
+            if txn.confidence_score < 0.6:
+                conf_cell.fill = low_conf_fill
+            elif txn.confidence_score < 0.8:
+                conf_cell.fill = med_conf_fill
+            else:
+                conf_cell.fill = high_conf_fill
+
+            ws.cell(row=row, column=8, value=sanitize_for_csv(txn.matched_pattern or ""))
+            ws.cell(row=row, column=9, value=sanitize_for_csv(txn.category_source))
+
+            factors_str = "; ".join(txn.confidence_factors) if txn.confidence_factors else ""
+            ws.cell(row=row, column=10, value=sanitize_for_csv(factors_str))
+
+            ws.cell(row=row, column=11, value=txn.fingerprint)
+
+        # Adjust column widths
+        widths = [10, 12, 20, 40, 20, 12, 10, 20, 12, 40, 18]
         for i, width in enumerate(widths, 1):
             ws.column_dimensions[get_column_letter(i)].width = width
 
         # Freeze header row
         ws.freeze_panes = "A2"
+
+        logger.debug(f"Created Review Queue with {len(transactions)} transactions")
 
     def _create_deposits_sheet(
         self, wb: "Workbook", transactions: list[Transaction]
@@ -363,7 +596,7 @@ class ExcelWriter:
 
         # Sort deposits by date, then account, then description
         sorted_deposits = sorted(
-            deposits, key=lambda t: (t.date, t.account_name, t.description)
+            deposits, key=self._txn_sort_key
         )
 
         # Write data
@@ -424,7 +657,7 @@ class ExcelWriter:
 
         # Sort transfers by date, then account, then description
         sorted_transfers = sorted(
-            transfers, key=lambda t: (t.date, t.account_name, t.description)
+            transfers, key=self._txn_sort_key
         )
 
         # Write data
@@ -517,7 +750,10 @@ class ExcelWriter:
     def _create_category_analysis(
         self, wb: "Workbook", transactions: list[Transaction]
     ) -> None:
-        """Create Category Analysis sheet.
+        """Create Category Analysis sheet with SUMIFS formulas.
+
+        Uses formulas that reference 'All Transactions' sheet so changes
+        to category assignments automatically update monthly totals.
 
         Args:
             wb: Workbook to add sheet to.
@@ -525,25 +761,26 @@ class ExcelWriter:
         """
         ws = wb.create_sheet("Category Analysis")
 
-        # Calculate spending by category
-        by_category: dict[str, dict[str, float]] = {}
+        # Column references in All Transactions sheet:
+        # F = Amount, D = Category, R = Year-Month
+        txn_sheet = f"'{self.SHEET_ALL_TRANSACTIONS}'"
+
+        # Get unique categories and months from transactions
+        categories: set[str] = set()
+        months: set[str] = set()
 
         for txn in transactions:
-            cat_name = self._get_category_name(txn.category) or "Uncategorized"
-            month_key = txn.date.strftime("%Y-%m")
+            cat_name = self._get_category_name(txn.category)
+            if cat_name:
+                categories.add(cat_name)
+            else:
+                categories.add("Uncategorized")
+            months.add(txn.date.strftime("%Y-%m"))
 
-            if cat_name not in by_category:
-                by_category[cat_name] = {}
-            by_category[cat_name][month_key] = (
-                by_category[cat_name].get(month_key, 0) + float(txn.amount)
-            )
+        all_categories = sorted(categories)
+        all_months = sorted(months)
 
-        # Get all months
-        all_months = sorted({
-            month for cat_months in by_category.values() for month in cat_months
-        })
-
-        if not all_months:
+        if not all_months or not all_categories:
             ws.cell(row=1, column=1, value="No transaction data")
             return
 
@@ -563,27 +800,32 @@ class ExcelWriter:
         ws.cell(row=1, column=total_col).font = self.header_font
         ws.cell(row=1, column=total_col).fill = self.header_fill
 
-        # Write data
-        for row, (cat_name, months) in enumerate(sorted(by_category.items()), 2):
+        # Write data with SUMIFS formulas
+        for row, cat_name in enumerate(all_categories, 2):
             ws.cell(row=row, column=1, value=sanitize_for_csv(cat_name))
 
-            cat_total = 0.0
             for col, month in enumerate(all_months, 2):
-                amount = months.get(month, 0)
-                cat_total += amount
-                if amount != 0:
-                    cell = ws.cell(row=row, column=col, value=amount)
-                    cell.number_format = self._money_format()
+                # SUMIFS: Amount where Category = cat and Year-Month = month
+                formula = (
+                    f"=SUMIFS({txn_sheet}!$F:$F,"
+                    f"{txn_sheet}!$D:$D,A{row},"
+                    f"{txn_sheet}!$R:$R,\"{month}\")"
+                )
+                cell = ws.cell(row=row, column=col, value=formula)
+                cell.number_format = self._money_format()
 
-            # Total for category
-            cell = ws.cell(row=row, column=total_col, value=cat_total)
+            # Total column: sum of month columns for this row
+            first_col = get_column_letter(2)
+            last_col = get_column_letter(len(all_months) + 1)
+            total_formula = f"=SUM({first_col}{row}:{last_col}{row})"
+            cell = ws.cell(row=row, column=total_col, value=total_formula)
             cell.number_format = self._money_format()
             cell.font = Font(bold=True)
 
         # Adjust widths
         ws.column_dimensions["A"].width = 25
         for i in range(len(all_months) + 1):
-            ws.column_dimensions[get_column_letter(i + 2)].width = 12  # +2 because starting at column B
+            ws.column_dimensions[get_column_letter(i + 2)].width = 12
 
         ws.freeze_panes = "B2"
 

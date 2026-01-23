@@ -225,11 +225,12 @@ class CSVExporter:
         with open(output_path, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
 
-            # Headers with confidence scoring columns
+            # Headers with confidence scoring columns and fingerprint
             writer.writerow([
                 "Date", "Account", "Description", "Category", "Sub-category",
                 "Amount", "Balance", "Source File", "Duplicate Flag", "Uncategorized Flag",
-                "Confidence", "Matched Pattern", "Category Source", "Confidence Factors"
+                "Confidence", "Matched Pattern", "Category Source", "Confidence Factors",
+                "Fingerprint"
             ])
 
             # Sort and write data
@@ -256,6 +257,7 @@ class CSVExporter:
                     sanitize_for_csv(txn.matched_pattern or ""),
                     sanitize_for_csv(txn.category_source),
                     sanitize_for_csv(factors_str),
+                    txn.fingerprint,
                 ])
 
         logger.info(f"Exported {len(transactions)} transactions to {output_path}")
