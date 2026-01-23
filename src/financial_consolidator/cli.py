@@ -592,7 +592,7 @@ def set_balance_command(
     config_dir: Path,
 ) -> int:
     """Set the opening balance for an account."""
-    from decimal import Decimal, InvalidOperation
+    from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
     console.print(f"[bold]Setting opening balance for {account_id}[/bold]\n")
 
@@ -613,10 +613,10 @@ def set_balance_command(
     # Normalize to 2 decimal places for financial consistency
     original_balance = opening_balance
     try:
-        opening_balance = opening_balance.quantize(Decimal("0.01"))
+        opening_balance = opening_balance.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     except InvalidOperation:
         console.print(f"[red]Error: Balance value too large: {balance_amount}[/red]")
-        console.print("[dim]Balance must have 26 or fewer digits before the decimal point[/dim]")
+        console.print("[dim]Balance magnitude exceeds representable range[/dim]")
         return 1
 
     # Notify user if rounding occurred
@@ -625,9 +625,23 @@ def set_balance_command(
             f"[yellow]Note: Balance rounded to 2 decimal places: {original_balance} → {opening_balance}[/yellow]"
         )
 
+    # Warn about negative balances (valid for credit cards but unusual)
+    if opening_balance < 0:
+        console.print(
+            "[yellow]Note: Negative opening balance entered. "
+            "This is valid for credit cards and lines of credit.[/yellow]"
+        )
+
     # Use today's date if not specified
     if balance_date is None:
         balance_date = date.today()
+
+    # Validate balance date is not unreasonably old
+    min_date = date(2000, 1, 1)
+    if balance_date < min_date:
+        console.print(f"[red]Error: Balance date too old: {balance_date}[/red]")
+        console.print(f"[dim]Balance date must be {min_date.isoformat()} or later[/dim]")
+        return 1
 
     # Validate balance date is not in the future
     if balance_date > date.today():
@@ -668,8 +682,11 @@ def set_balance_command(
         console.print(f"[red]Error saving accounts: {e}[/red]")
         return 1
 
-    # Format the balance for display
-    formatted_balance = f"${opening_balance:,.2f}"
+    # Format the balance for display (handle negative properly)
+    if opening_balance < 0:
+        formatted_balance = f"-${abs(opening_balance):,.2f}"
+    else:
+        formatted_balance = f"${opening_balance:,.2f}"
     console.print(
         f"[green]Set opening balance for {account_id}: "
         f"{formatted_balance} as of {balance_date.isoformat()}[/green]"

@@ -736,7 +736,7 @@ def save_accounts(path: Path, config: Config) -> None:
         if account.opening_balance_date is not None:
             accounts_dict[account.id]["opening_balance"] = str(account.opening_balance)
             accounts_dict[account.id]["opening_balance_date"] = account.opening_balance_date.isoformat()
-        elif account.opening_balance:
+        elif account.opening_balance != Decimal("0"):
             # Backward compatibility: preserve non-zero balance without date
             accounts_dict[account.id]["opening_balance"] = str(account.opening_balance)
         if account.source_file_patterns:
