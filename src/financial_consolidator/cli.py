@@ -604,16 +604,46 @@ def set_balance_command(
         console.print("[dim]Balance must be a valid decimal number (e.g., 5234.56)[/dim]")
         return 1
 
+    # Validate the balance is a finite number (not inf or nan)
+    if not opening_balance.is_finite():
+        console.print(f"[red]Error: Invalid balance amount: {balance_amount}[/red]")
+        console.print("[dim]Balance must be a finite number, not infinity or NaN[/dim]")
+        return 1
+
+    # Normalize to 2 decimal places for financial consistency
+    original_balance = opening_balance
+    try:
+        opening_balance = opening_balance.quantize(Decimal("0.01"))
+    except InvalidOperation:
+        console.print(f"[red]Error: Balance value too large: {balance_amount}[/red]")
+        console.print("[dim]Balance must have 26 or fewer digits before the decimal point[/dim]")
+        return 1
+
+    # Notify user if rounding occurred
+    if opening_balance != original_balance:
+        console.print(
+            f"[yellow]Note: Balance rounded to 2 decimal places: {original_balance} → {opening_balance}[/yellow]"
+        )
+
     # Use today's date if not specified
     if balance_date is None:
         balance_date = date.today()
 
+    # Validate balance date is not in the future
+    if balance_date > date.today():
+        console.print(f"[red]Error: Balance date cannot be in the future: {balance_date}[/red]")
+        console.print("[dim]Opening balance date must be today or earlier[/dim]")
+        return 1
+
     # Load config to get accounts
-    # Note: load_config() handles missing accounts.yaml gracefully (returns empty accounts)
-    config = load_config(
-        accounts_path=accounts_path,
-        config_dir=config_dir,
-    )
+    try:
+        config = load_config(
+            accounts_path=accounts_path,
+            config_dir=config_dir,
+        )
+    except FileNotFoundError as e:
+        console.print(f"[red]Error loading config: {e}[/red]")
+        return 1
 
     # Find the account
     account = config.accounts.get(account_id)

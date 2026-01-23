@@ -731,10 +731,14 @@ def save_accounts(path: Path, config: Config) -> None:
             accounts_dict[account.id]["institution"] = account.institution
         if account.account_number_masked:
             accounts_dict[account.id]["account_number_masked"] = account.account_number_masked
-        if account.opening_balance:
+        # Write balance fields: date indicates explicitly set via CLI,
+        # non-zero balance alone preserves backward compatibility for manual edits
+        if account.opening_balance_date is not None:
             accounts_dict[account.id]["opening_balance"] = str(account.opening_balance)
-        if account.opening_balance_date:
             accounts_dict[account.id]["opening_balance_date"] = account.opening_balance_date.isoformat()
+        elif account.opening_balance:
+            # Backward compatibility: preserve non-zero balance without date
+            accounts_dict[account.id]["opening_balance"] = str(account.opening_balance)
         if account.source_file_patterns:
             accounts_dict[account.id]["source_file_patterns"] = account.source_file_patterns
         if account.display_order:
