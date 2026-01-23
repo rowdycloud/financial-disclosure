@@ -703,6 +703,13 @@ def set_balance_command(
         console.print("[dim]Balance must be a finite number, not infinity or NaN[/dim]")
         return 1
 
+    # Validate balance is within reasonable range (±1 trillion)
+    max_balance = Decimal("1000000000000")
+    if abs(opening_balance) > max_balance:
+        console.print(f"[red]Error: Balance exceeds maximum: ${opening_balance:,.2f}[/red]")
+        console.print("[dim]Balance must be within ±$1 trillion[/dim]")
+        return 1
+
     # Normalize to 2 decimal places for financial consistency
     original_balance = opening_balance
     try:
