@@ -5,7 +5,7 @@ import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import date
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from enum import Enum
 
 
@@ -132,7 +132,10 @@ class Transaction:
         desc_normalized = re.sub(r"\s+", " ", self.description.lower().strip())
         # Normalize amount: use Decimal directly for full precision
         # Quantize to 2 decimal places for consistency, normalize to handle -0
-        amount_normalized = self.amount.quantize(Decimal("0.01"))
+        # Note: Uses ROUND_HALF_UP to match decimal_utils.py currency formatting.
+        # This ensures consistent rounding across the codebase. Bank transactions
+        # virtually never have >2 decimal places, so the rounding mode rarely matters.
+        amount_normalized = self.amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         if amount_normalized == 0:
             amount_normalized = Decimal("0.00")  # Normalize -0 to 0
         amount_str = str(amount_normalized)

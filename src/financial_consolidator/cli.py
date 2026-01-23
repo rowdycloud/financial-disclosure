@@ -259,6 +259,26 @@ Examples:
         help="Path to corrections.yaml (default: config/corrections.yaml)",
     )
 
+    # Balance management
+    balance_group = parser.add_argument_group("Balance Management")
+    balance_group.add_argument(
+        "--set-balance",
+        metavar="ACCOUNT_ID",
+        help="Set opening balance for an account (use with --balance and optionally --balance-date)",
+    )
+    balance_group.add_argument(
+        "--balance",
+        type=str,
+        metavar="AMOUNT",
+        help="Balance amount in decimal format (e.g., 5234.56). Use with --set-balance.",
+    )
+    balance_group.add_argument(
+        "--balance-date",
+        type=lambda s: date.fromisoformat(s),
+        metavar="DATE",
+        help="Balance date in YYYY-MM-DD format. Use with --set-balance. Defaults to today.",
+    )
+
     return parser
 
 
@@ -560,6 +580,127 @@ def clear_corrections_command(corrections_path: Path, force: bool = False) -> in
         return 1
 
     console.print(f"[green]Cleared {count} corrections.[/green]")
+
+    return 0
+
+
+def set_balance_command(
+    account_id: str,
+    balance_amount: str,
+    balance_date: date | None,
+    accounts_path: Path | None,
+    config_dir: Path,
+) -> int:
+    """Set the opening balance for an account."""
+    from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+
+    console.print(f"[bold]Setting opening balance for {account_id}[/bold]\n")
+
+    # Parse the balance amount
+    try:
+        opening_balance = Decimal(balance_amount)
+    except InvalidOperation:
+        console.print(f"[red]Error: Invalid balance amount: {balance_amount}[/red]")
+        console.print("[dim]Balance must be a valid decimal number (e.g., 5234.56)[/dim]")
+        return 1
+
+    # Validate the balance is a finite number (not inf or nan)
+    if not opening_balance.is_finite():
+        console.print(f"[red]Error: Invalid balance amount: {balance_amount}[/red]")
+        console.print("[dim]Balance must be a finite number, not infinity or NaN[/dim]")
+        return 1
+
+    # Normalize to 2 decimal places for financial consistency
+    original_balance = opening_balance
+    try:
+        opening_balance = opening_balance.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    except InvalidOperation:
+        console.print(f"[red]Error: Balance value too large: {balance_amount}[/red]")
+        console.print("[dim]Balance magnitude exceeds representable range[/dim]")
+        return 1
+
+    # Notify user if rounding occurred
+    if opening_balance != original_balance:
+        console.print(
+            f"[yellow]Note: Balance rounded to 2 decimal places: {original_balance} → {opening_balance}[/yellow]"
+        )
+
+    # Warn about negative balances (valid for credit cards but unusual)
+    if opening_balance < 0:
+        console.print(
+            "[yellow]Note: Negative opening balance entered. "
+            "This is valid for credit cards and lines of credit.[/yellow]"
+        )
+
+    # Capture today's date once for consistent validation
+    today = date.today()
+
+    # Use today's date if not specified
+    if balance_date is None:
+        balance_date = today
+        console.print(
+            f"[dim]Using today's date ({today.isoformat()}) for balance date. "
+            "Use --balance-date to specify a different date.[/dim]"
+        )
+
+    # Validate balance date is not unreasonably old
+    # Unix epoch (1970) prevents obvious typos like 1924 instead of 2024
+    # while still allowing legitimate historical data from the computing era
+    min_date = date(1970, 1, 1)
+    if balance_date < min_date:
+        console.print(f"[red]Error: Balance date too old: {balance_date}[/red]")
+        console.print(f"[dim]Balance date must be {min_date.isoformat()} or later[/dim]")
+        return 1
+
+    # Validate balance date is not in the future
+    if balance_date > today:
+        console.print(f"[red]Error: Balance date cannot be in the future: {balance_date}[/red]")
+        console.print("[dim]Opening balance date must be today or earlier[/dim]")
+        return 1
+
+    # Load config to get accounts
+    try:
+        config = load_config(
+            accounts_path=accounts_path,
+            config_dir=config_dir,
+        )
+    except FileNotFoundError as e:
+        console.print(f"[red]Error loading config: {e}[/red]")
+        return 1
+
+    # Find the account
+    account = config.accounts.get(account_id)
+    if account is None:
+        console.print(f"[red]Error: Account not found: {account_id}[/red]")
+        console.print("\n[dim]Available accounts:[/dim]")
+        for acc_id in sorted(config.accounts.keys()):
+            console.print(f"  - {acc_id}")
+        return 1
+
+    # Update the account
+    account.opening_balance = opening_balance
+    account.opening_balance_date = balance_date
+
+    # Determine the accounts file path
+    actual_accounts_path = accounts_path or (config_dir / "accounts.yaml")
+
+    # Save the updated accounts
+    try:
+        save_accounts(actual_accounts_path, config)
+    except OSError as e:
+        console.print(f"[red]Error saving accounts: {e}[/red]")
+        return 1
+
+    # Format the balance for display (handle negative properly)
+    if opening_balance < 0:
+        formatted_balance = f"-${abs(opening_balance):,.2f}"
+    else:
+        formatted_balance = f"${opening_balance:,.2f}"
+    console.print(
+        f"[green]Set opening balance for {account_id}: "
+        f"{formatted_balance} as of {balance_date.isoformat()}[/green]"
+    )
+    console.print(f"[dim]Saved to: {actual_accounts_path}[/dim]")
 
     return 0
 
@@ -1009,6 +1150,22 @@ def main() -> int:
             corrections_path,
             args.config_dir,
             args.categories,
+        )
+
+    # Handle balance management commands (no input-dir required)
+    if args.set_balance:
+        if args.balance is None:
+            console.print("[red]Error: --balance is required when using --set-balance[/red]")
+            console.print(
+                "[dim]Example: --set-balance chase_checking --balance 5234.56 --balance-date 2024-01-01[/dim]"
+            )
+            return 1
+        return set_balance_command(
+            account_id=args.set_balance,
+            balance_amount=args.balance,
+            balance_date=args.balance_date,
+            accounts_path=args.accounts,
+            config_dir=args.config_dir,
         )
 
     # Validate required arguments for processing mode

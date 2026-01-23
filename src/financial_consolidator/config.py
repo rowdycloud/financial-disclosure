@@ -597,6 +597,7 @@ def save_corrections(path: Path, corrections: dict[str, CategoryCorrection]) -> 
         yaml.YAMLError: If corrections cannot be serialized (should not happen
             with well-formed CategoryCorrection objects).
     """
+    import os
     import tempfile
 
     data: dict[str, object] = {
@@ -607,22 +608,33 @@ def save_corrections(path: Path, corrections: dict[str, CategoryCorrection]) -> 
     path.parent.mkdir(parents=True, exist_ok=True)
 
     # Atomic write: serialize to temp file first, then rename
-    # This prevents corruption if yaml.dump fails partway through
-    temp_fd = None
-    temp_path = None
+    # This prevents corruption if yaml.dump fails or process is interrupted
+    temp_fd, temp_path = tempfile.mkstemp(
+        dir=path.parent, prefix=".corrections_", suffix=".yaml"
+    )
+    fd_owned = False  # Track if fd has been handed to file object
     try:
-        temp_fd, temp_path = tempfile.mkstemp(
-            dir=path.parent, prefix=".corrections_", suffix=".yaml"
-        )
-        with open(temp_fd, "w", encoding="utf-8") as f:
+        with os.fdopen(temp_fd, "w", encoding="utf-8") as f:
+            fd_owned = True  # os.fdopen now owns the fd
             yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+            f.flush()
+            os.fsync(f.fileno())
         # Atomic rename (on POSIX systems)
         Path(temp_path).replace(path)
         temp_path = None  # Mark as successfully renamed
     finally:
+        # Close fd if os.fdopen() failed before taking ownership
+        if not fd_owned:
+            try:
+                os.close(temp_fd)
+            except OSError:
+                pass
         # Clean up temp file if rename didn't happen
-        if temp_path and Path(temp_path).exists():
-            Path(temp_path).unlink()
+        if temp_path:
+            try:
+                Path(temp_path).unlink()
+            except OSError:
+                pass  # Best effort cleanup
 
     logger.info(f"Saved {len(corrections)} corrections to {path}")
 
@@ -710,12 +722,20 @@ def load_config(
 def save_accounts(path: Path, config: Config) -> None:
     """Save accounts and file mappings to accounts.yaml.
 
+    Uses atomic write (temp file + rename) to prevent corruption if
+    the process is interrupted during YAML serialization.
+
     This is used to persist interactive account mappings.
 
     Args:
         path: Path to save accounts.yaml.
         config: Config object with accounts and mappings.
+
+    Raises:
+        OSError: If file cannot be written.
     """
+    import os
+    import tempfile
     data: dict[str, object] = {
         "file_mappings": config.file_mappings,
         "accounts": {},
@@ -731,10 +751,14 @@ def save_accounts(path: Path, config: Config) -> None:
             accounts_dict[account.id]["institution"] = account.institution
         if account.account_number_masked:
             accounts_dict[account.id]["account_number_masked"] = account.account_number_masked
-        if account.opening_balance:
+        # Write balance fields: date indicates explicitly set via CLI,
+        # non-zero balance alone preserves backward compatibility for manual edits
+        if account.opening_balance_date is not None:
             accounts_dict[account.id]["opening_balance"] = str(account.opening_balance)
-        if account.opening_balance_date:
             accounts_dict[account.id]["opening_balance_date"] = account.opening_balance_date.isoformat()
+        elif account.opening_balance != Decimal("0"):
+            # Backward compatibility: preserve non-zero balance without date
+            accounts_dict[account.id]["opening_balance"] = str(account.opening_balance)
         if account.source_file_patterns:
             accounts_dict[account.id]["source_file_patterns"] = account.source_file_patterns
         if account.display_order:
@@ -745,7 +769,33 @@ def save_accounts(path: Path, config: Config) -> None:
     # Ensure parent directory exists
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(path, "w", encoding="utf-8") as f:
-        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+    # Atomic write: serialize to temp file first, then rename
+    # This prevents corruption if yaml.dump fails or process is interrupted
+    temp_fd, temp_path = tempfile.mkstemp(
+        dir=path.parent, prefix=".accounts_", suffix=".yaml"
+    )
+    fd_owned = False  # Track if fd has been handed to file object
+    try:
+        with os.fdopen(temp_fd, "w", encoding="utf-8") as f:
+            fd_owned = True  # os.fdopen now owns the fd
+            yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+            f.flush()
+            os.fsync(f.fileno())
+        # Atomic rename (on POSIX systems)
+        Path(temp_path).replace(path)
+        temp_path = None  # Mark as successfully renamed
+    finally:
+        # Close fd if os.fdopen() failed before taking ownership
+        if not fd_owned:
+            try:
+                os.close(temp_fd)
+            except OSError:
+                pass
+        # Clean up temp file if rename didn't happen
+        if temp_path:
+            try:
+                Path(temp_path).unlink()
+            except OSError:
+                pass  # Best effort cleanup
 
     logger.info(f"Saved accounts configuration to {path}")
