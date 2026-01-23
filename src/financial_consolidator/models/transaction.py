@@ -1,5 +1,7 @@
 """Transaction data models for financial records."""
 
+import hashlib
+import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import date
@@ -105,6 +107,40 @@ class Transaction:
             The amount as stored (negative for debits, positive for credits).
         """
         return self.amount
+
+    @property
+    def fingerprint(self) -> str:
+        """Generate a stable fingerprint for matching across analysis runs.
+
+        The fingerprint is deterministic based on transaction data,
+        allowing the same transaction to be identified across runs.
+        Uses date, description (normalized), amount, and account_id.
+
+        Note:
+            Transactions with identical date, description, amount, and account
+            will have the same fingerprint. This is intentional - such transactions
+            are indistinguishable and any correction will apply to all matches.
+            Example: Two $5.00 Starbucks purchases on the same day from the same
+            account will share a fingerprint, so correcting one corrects both.
+
+        Returns:
+            A 16-character hex string uniquely identifying this transaction.
+        """
+        # Normalize components for consistent hashing
+        date_str = self.date.isoformat()
+        # Normalize description: lowercase, strip, collapse whitespace
+        desc_normalized = re.sub(r"\s+", " ", self.description.lower().strip())
+        # Normalize amount: use Decimal directly for full precision
+        # Quantize to 2 decimal places for consistency, normalize to handle -0
+        amount_normalized = self.amount.quantize(Decimal("0.01"))
+        if amount_normalized == 0:
+            amount_normalized = Decimal("0.00")  # Normalize -0 to 0
+        amount_str = str(amount_normalized)
+        account_str = self.account_id
+
+        # Create stable hash
+        data = f"{date_str}|{desc_normalized}|{amount_str}|{account_str}"
+        return hashlib.sha256(data.encode()).hexdigest()[:16]
 
     def assign_category(
         self,

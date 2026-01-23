@@ -11,6 +11,7 @@ import yaml
 from financial_consolidator.models.account import Account
 from financial_consolidator.models.category import (
     Category,
+    CategoryCorrection,
     CategoryRule,
     ManualOverride,
 )
@@ -250,6 +251,7 @@ class Config:
         categories: Dictionary of category ID to Category.
         category_rules: List of category rules (sorted by priority).
         manual_overrides: List of manual category overrides.
+        corrections: Dictionary of fingerprint to CategoryCorrection.
         anomaly: Anomaly detection configuration.
         output: Output generation configuration.
         logging: Logging configuration.
@@ -263,6 +265,7 @@ class Config:
     categories: dict[str, Category] = field(default_factory=dict)
     category_rules: list[CategoryRule] = field(default_factory=list)
     manual_overrides: list[ManualOverride] = field(default_factory=list)
+    corrections: dict[str, CategoryCorrection] = field(default_factory=dict)
     anomaly: AnomalyConfig = field(default_factory=AnomalyConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
@@ -324,6 +327,46 @@ class Config:
             if override.matches(transaction_date, amount, description):
                 return override
         return None
+
+    def get_matching_correction(self, fingerprint: str) -> CategoryCorrection | None:
+        """Find a correction matching the transaction fingerprint.
+
+        Args:
+            fingerprint: Transaction fingerprint (16-char hex hash).
+
+        Returns:
+            Matching correction, or None.
+        """
+        return self.corrections.get(fingerprint)
+
+    def get_category_id_by_name(self, name: str | None) -> str | None:
+        """Find a category ID by its display name (case-insensitive).
+
+        Args:
+            name: Category display name to look up.
+
+        Returns:
+            Category ID if found, None otherwise.
+        """
+        if not name:
+            return None
+        name_lower = name.lower().strip()
+        for category_id, category in self.categories.items():
+            if category.name.lower() == name_lower:
+                return category_id
+        return None
+
+    def get_category_name_by_id(self, category_id: str) -> str | None:
+        """Find a category display name by its ID.
+
+        Args:
+            category_id: Category ID to look up.
+
+        Returns:
+            Category name if found, None otherwise.
+        """
+        category = self.categories.get(category_id)
+        return category.name if category else None
 
 
 def load_yaml_file(path: Path) -> dict[str, object]:
@@ -442,6 +485,9 @@ def load_categories(path: Path) -> tuple[dict[str, Category], list[CategoryRule]
     data = load_yaml_file(path)
 
     categories: dict[str, Category] = {}
+    # Track names to detect duplicates (case-insensitive)
+    name_to_ids: dict[str, list[str]] = {}
+
     if "categories" in data and data["categories"] is not None:
         cat_list = data["categories"]
         if not isinstance(cat_list, list):
@@ -449,6 +495,22 @@ def load_categories(path: Path) -> tuple[dict[str, Category], list[CategoryRule]
         for cat_data in cat_list:
             category = Category.from_dict(cat_data)
             categories[category.id] = category
+            # Track category name (case-insensitive) for duplicate detection
+            name_lower = category.name.lower()
+            if name_lower not in name_to_ids:
+                name_to_ids[name_lower] = []
+            name_to_ids[name_lower].append(category.id)
+
+    # Warn about duplicate category names (affects correction import)
+    # Note: get_category_id_by_name() iterates self.categories which preserves
+    # insertion order (Python 3.7+), so it returns the first defined category.
+    for name_lower, ids in name_to_ids.items():
+        if len(ids) > 1:
+            logger.warning(
+                f"Duplicate category name '{categories[ids[0]].name}' has multiple IDs: "
+                f"{', '.join(ids)}. Name lookups will return '{ids[0]}' "
+                "(first in categories.yaml). Consider renaming to avoid ambiguity."
+            )
 
     rules: list[CategoryRule] = []
     if "rules" in data and data["rules"] is not None:
@@ -494,11 +556,83 @@ def load_manual_overrides(path: Path) -> list[ManualOverride]:
     return overrides
 
 
+def load_corrections(path: Path) -> dict[str, CategoryCorrection]:
+    """Load category corrections from corrections.yaml.
+
+    Args:
+        path: Path to corrections.yaml.
+
+    Returns:
+        Dictionary of fingerprint to CategoryCorrection.
+    """
+    if not path.exists():
+        return {}
+
+    data = load_yaml_file(path)
+
+    corrections: dict[str, CategoryCorrection] = {}
+    if "corrections" in data and data["corrections"] is not None:
+        correction_list = data["corrections"]
+        if not isinstance(correction_list, list):
+            raise ConfigError(f"'corrections' must be a list, got {type(correction_list).__name__}")
+        for correction_data in correction_list:
+            correction = CategoryCorrection.from_dict(correction_data)
+            corrections[correction.fingerprint] = correction
+
+    return corrections
+
+
+def save_corrections(path: Path, corrections: dict[str, CategoryCorrection]) -> None:
+    """Save category corrections to corrections.yaml.
+
+    Uses atomic write (temp file + rename) to prevent corruption if YAML
+    serialization fails partway through.
+
+    Args:
+        path: Path to save corrections.yaml.
+        corrections: Dictionary of fingerprint to CategoryCorrection.
+
+    Raises:
+        OSError: If file cannot be written.
+        yaml.YAMLError: If corrections cannot be serialized (should not happen
+            with well-formed CategoryCorrection objects).
+    """
+    import tempfile
+
+    data: dict[str, object] = {
+        "corrections": [corr.to_dict() for corr in corrections.values()]
+    }
+
+    # Ensure parent directory exists
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Atomic write: serialize to temp file first, then rename
+    # This prevents corruption if yaml.dump fails partway through
+    temp_fd = None
+    temp_path = None
+    try:
+        temp_fd, temp_path = tempfile.mkstemp(
+            dir=path.parent, prefix=".corrections_", suffix=".yaml"
+        )
+        with open(temp_fd, "w", encoding="utf-8") as f:
+            yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+        # Atomic rename (on POSIX systems)
+        Path(temp_path).replace(path)
+        temp_path = None  # Mark as successfully renamed
+    finally:
+        # Clean up temp file if rename didn't happen
+        if temp_path and Path(temp_path).exists():
+            Path(temp_path).unlink()
+
+    logger.info(f"Saved {len(corrections)} corrections to {path}")
+
+
 def load_config(
     settings_path: Path | None = None,
     accounts_path: Path | None = None,
     categories_path: Path | None = None,
     manual_overrides_path: Path | None = None,
+    corrections_path: Path | None = None,
     config_dir: Path | None = None,
 ) -> Config:
     """Load complete configuration from all config files.
@@ -508,6 +642,7 @@ def load_config(
         accounts_path: Path to accounts.yaml (or None to use default).
         categories_path: Path to categories.yaml (or None to use default).
         manual_overrides_path: Path to manual_categories.yaml (or None to use default).
+        corrections_path: Path to corrections.yaml (or None to use default).
         config_dir: Base config directory (default: ./config).
 
     Returns:
@@ -528,6 +663,8 @@ def load_config(
         categories_path = config_dir / "categories.yaml"
     if manual_overrides_path is None:
         manual_overrides_path = config_dir / "manual_categories.yaml"
+    if corrections_path is None:
+        corrections_path = config_dir / "corrections.yaml"
 
     config = Config()
 
@@ -561,6 +698,11 @@ def load_config(
     config.manual_overrides = load_manual_overrides(manual_overrides_path)
     if config.manual_overrides:
         logger.info(f"Loaded {len(config.manual_overrides)} manual overrides")
+
+    # Load corrections (optional)
+    config.corrections = load_corrections(corrections_path)
+    if config.corrections:
+        logger.info(f"Loaded {len(config.corrections)} category corrections")
 
     return config
 

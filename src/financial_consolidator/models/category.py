@@ -607,3 +607,78 @@ class ManualOverride:
             subcategory_id=str(data["subcategory"]) if "subcategory" in data else None,
             priority=priority,
         )
+
+
+@dataclass
+class CategoryCorrection:
+    """A user-provided category correction imported from reviewed output file.
+
+    Corrections are matched by transaction fingerprint (deterministic hash of
+    date, description, amount, and account). They take highest priority in
+    categorization, above manual overrides and rules.
+
+    Attributes:
+        fingerprint: Transaction fingerprint for matching.
+        category_id: Corrected category ID.
+        subcategory_id: Optional subcategory ID.
+        original_category_id: What category was originally assigned (for audit).
+        original_source: How it was originally categorized ("rule", "ai", "default").
+        corrected_at: ISO timestamp when the correction was imported.
+        source_file: The output file this correction was imported from.
+    """
+
+    fingerprint: str
+    category_id: str
+    subcategory_id: str | None = None
+    original_category_id: str | None = None
+    original_source: str | None = None
+    corrected_at: str | None = None
+    source_file: str | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, object]) -> "CategoryCorrection":
+        """Create a CategoryCorrection from a dictionary (e.g., from YAML).
+
+        Args:
+            data: Dictionary containing correction data.
+
+        Returns:
+            A new CategoryCorrection instance.
+        """
+        return cls(
+            fingerprint=str(data["fingerprint"]),
+            category_id=str(data["category_id"]),
+            subcategory_id=str(data["subcategory_id"]) if data.get("subcategory_id") else None,
+            original_category_id=str(data["original_category_id"]) if data.get("original_category_id") else None,
+            original_source=str(data["original_source"]) if data.get("original_source") else None,
+            corrected_at=str(data["corrected_at"]) if data.get("corrected_at") else None,
+            source_file=str(data["source_file"]) if data.get("source_file") else None,
+        )
+
+    def to_dict(self) -> dict[str, object]:
+        """Convert to dictionary for YAML serialization.
+
+        Returns:
+            Dictionary representation of this correction.
+        """
+        result: dict[str, object] = {
+            "fingerprint": self.fingerprint,
+            "category_id": self.category_id,
+        }
+        if self.subcategory_id:
+            result["subcategory_id"] = self.subcategory_id
+        if self.original_category_id:
+            result["original_category_id"] = self.original_category_id
+        if self.original_source:
+            result["original_source"] = self.original_source
+        if self.corrected_at:
+            result["corrected_at"] = self.corrected_at
+        if self.source_file:
+            result["source_file"] = self.source_file
+        return result
+
+    def __repr__(self) -> str:
+        return (
+            f"CategoryCorrection(fingerprint={self.fingerprint[:8]}..., "
+            f"category={self.category_id!r})"
+        )

@@ -123,10 +123,10 @@ KNOWN_FORMATS: dict[str, FormatInfo] = {
         "institution": "Discover",
     },
     "citi": {
-        "headers": ["date", "description", "debit", "credit"],
+        "headers": ["status", "date", "description", "debit", "credit", "member name"],
         "mapping": lambda cols: ColumnMapping(
-            date_col=cols.get("date", 0),
-            description_col=cols.get("description", 1),
+            date_col=cols.get("date", 1),
+            description_col=cols.get("description", 2),
             debit_col=cols.get("debit"),
             credit_col=cols.get("credit"),
         ),
@@ -352,15 +352,17 @@ class CSVParser(BaseParser):
         if not headers:
             return None
 
-        # Try to match known formats
+        # Try to match known formats - pick the one with most header matches
         col_indices = {h.lower().strip(): i for i, h in enumerate(headers)}
+
+        best_match: tuple[int, CSVFormat | None] = (0, None)
 
         for _format_name, format_info in KNOWN_FORMATS.items():
             known_headers = format_info["headers"]
             match_count = sum(1 for h in known_headers if h in col_indices)
 
             # Require at least date, description, and amount/debit+credit
-            if match_count >= 3:
+            if match_count >= 3 and match_count > best_match[0]:
                 mapping = format_info["mapping"](col_indices)
 
                 # Validate we have required columns
@@ -371,13 +373,19 @@ class CSVParser(BaseParser):
                 ):
                     continue
 
-                return CSVFormat(
-                    delimiter=delimiter,
-                    has_header=True,
-                    skip_rows=skip_rows,
-                    column_mapping=mapping,
-                    institution=format_info.get("institution"),
+                best_match = (
+                    match_count,
+                    CSVFormat(
+                        delimiter=delimiter,
+                        has_header=True,
+                        skip_rows=skip_rows,
+                        column_mapping=mapping,
+                        institution=format_info.get("institution"),
+                    ),
                 )
+
+        if best_match[1]:
+            return best_match[1]
 
         # Fallback: try to auto-detect columns
         auto_mapping = self._auto_detect_columns(headers, col_indices)

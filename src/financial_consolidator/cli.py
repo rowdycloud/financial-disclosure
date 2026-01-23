@@ -5,12 +5,20 @@ import sys
 from datetime import date, datetime
 from pathlib import Path
 
+import yaml
 from dotenv import load_dotenv
 from rich.console import Console
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
 
 from financial_consolidator import __version__
-from financial_consolidator.config import Config, load_config, save_accounts
+from financial_consolidator.config import (
+    Config,
+    ConfigError,
+    load_config,
+    load_corrections,
+    save_accounts,
+    save_corrections,
+)
 from financial_consolidator.models.account import Account, AccountType
 from financial_consolidator.processing.report_generator import generate_pl_summary
 from financial_consolidator.utils.logging_config import get_logger, setup_logging
@@ -219,6 +227,38 @@ Examples:
         help="Export categorization summary statistics",
     )
 
+    # Corrections management
+    corrections_group = parser.add_argument_group("Corrections Management")
+    corrections_group.add_argument(
+        "--import-corrections",
+        type=Path,
+        default=None,
+        metavar="FILE",
+        help="Import category corrections from reviewed output file (XLSX or CSV)",
+    )
+    corrections_group.add_argument(
+        "--show-corrections",
+        action="store_true",
+        help="Show current corrections and exit",
+    )
+    corrections_group.add_argument(
+        "--clear-corrections",
+        action="store_true",
+        help="Clear all stored corrections",
+    )
+    corrections_group.add_argument(
+        "--force",
+        action="store_true",
+        help="Skip confirmation prompts (for --clear-corrections)",
+    )
+    corrections_group.add_argument(
+        "--corrections-file",
+        type=Path,
+        default=None,
+        metavar="FILE",
+        help="Path to corrections.yaml (default: config/corrections.yaml)",
+    )
+
     return parser
 
 
@@ -415,6 +455,207 @@ def prompt_prune_stale_mappings(stale_filenames: list[str], config: Config) -> b
         return True
 
     return False
+
+
+def show_corrections_command(corrections_path: Path) -> int:
+    """Show current corrections.
+
+    Args:
+        corrections_path: Path to corrections.yaml.
+
+    Returns:
+        Exit code (0 for success, 1 for error).
+    """
+    console.print("[bold]Current Corrections[/bold]\n")
+
+    if not corrections_path.exists():
+        console.print("[dim]No corrections file found.[/dim]")
+        console.print(f"[dim]Expected location: {corrections_path}[/dim]")
+        return 0
+
+    try:
+        corrections = load_corrections(corrections_path)
+    except yaml.YAMLError as e:
+        console.print(f"[red]Error: Corrupted corrections file: {e}[/red]")
+        console.print(f"[dim]File: {corrections_path}[/dim]")
+        console.print("[dim]Try deleting the file or fixing the YAML syntax.[/dim]")
+        return 1
+    except ConfigError as e:
+        console.print(f"[red]Error: Invalid corrections format: {e}[/red]")
+        return 1
+    except PermissionError:
+        console.print(f"[red]Error: Permission denied reading: {corrections_path}[/red]")
+        return 1
+    except OSError as e:
+        console.print(f"[red]Error reading corrections file: {e}[/red]")
+        return 1
+
+    if not corrections:
+        console.print("[dim]No corrections stored.[/dim]")
+        return 0
+
+    console.print(f"Found {len(corrections)} corrections:\n")
+
+    from rich.table import Table
+
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("Fingerprint", style="dim")
+    table.add_column("Category ID")
+    table.add_column("Source File")
+    table.add_column("Corrected At")
+
+    for fingerprint, correction in sorted(corrections.items()):
+        table.add_row(
+            fingerprint[:12] + "...",
+            correction.category_id,
+            correction.source_file or "-",
+            correction.corrected_at or "-"
+        )
+
+    console.print(table)
+
+    return 0
+
+
+def clear_corrections_command(corrections_path: Path, force: bool = False) -> int:
+    """Clear all stored corrections.
+
+    Args:
+        corrections_path: Path to corrections.yaml.
+        force: Skip confirmation prompt if True.
+
+    Returns:
+        Exit code (0 for success, 1 for error).
+    """
+    if not corrections_path.exists():
+        console.print("[dim]No corrections file found. Nothing to clear.[/dim]")
+        return 0
+
+    try:
+        corrections = load_corrections(corrections_path)
+    except (yaml.YAMLError, ConfigError) as e:
+        console.print(f"[red]Error reading corrections: {e}[/red]")
+        return 1
+
+    count = len(corrections)
+
+    if count == 0:
+        console.print("[dim]No corrections stored. Nothing to clear.[/dim]")
+        return 0
+
+    # Confirm with user unless --force is specified
+    if not force:
+        console.print(f"[yellow]This will delete {count} corrections.[/yellow]")
+        response = console.input("Are you sure? [y/N]: ")
+
+        if response.lower() != "y":
+            console.print("[dim]Cancelled.[/dim]")
+            return 0
+
+    # Clear by saving empty dict
+    try:
+        save_corrections(corrections_path, {})
+    except OSError as e:
+        console.print(f"[red]Error saving corrections: {e}[/red]")
+        return 1
+
+    console.print(f"[green]Cleared {count} corrections.[/green]")
+
+    return 0
+
+
+def import_corrections_command(
+    import_path: Path,
+    corrections_path: Path,
+    config_dir: Path,
+    categories_path: Path | None,
+) -> int:
+    """Import corrections from a reviewed output file.
+
+    Args:
+        import_path: Path to the XLSX or CSV file to import.
+        corrections_path: Path to corrections.yaml.
+        config_dir: Path to config directory.
+        categories_path: Optional path to categories.yaml.
+
+    Returns:
+        Exit code (0 for success, 1 for errors).
+    """
+    from financial_consolidator.processing.correction_importer import (
+        CorrectionImportError,
+        import_corrections_from_file,
+    )
+
+    console.print(f"[bold]Importing corrections from {import_path}[/bold]\n")
+
+    if not import_path.exists():
+        console.print(f"[red]Error: File not found: {import_path}[/red]")
+        return 1
+
+    # Load config to get category definitions
+    try:
+        config = load_config(
+            categories_path=categories_path,
+            config_dir=config_dir,
+        )
+    except FileNotFoundError as e:
+        console.print(f"[red]Error loading config: {e}[/red]")
+        return 1
+
+    # Import corrections
+    try:
+        result = import_corrections_from_file(import_path, config)
+    except CorrectionImportError as e:
+        console.print(f"[red]Error importing corrections: {e}[/red]")
+        return 1
+    except FileNotFoundError as e:
+        console.print(f"[red]File not found: {e}[/red]")
+        return 1
+    except IsADirectoryError:
+        console.print(f"[red]Error: Path is a directory, not a file: {import_path}[/red]")
+        return 1
+    except PermissionError:
+        console.print(f"[red]Error: Permission denied reading: {import_path}[/red]")
+        return 1
+    except OSError as e:
+        console.print(f"[red]Error reading file: {e}[/red]")
+        return 1
+
+    # Load existing corrections
+    try:
+        existing = load_corrections(corrections_path) if corrections_path.exists() else {}
+    except (yaml.YAMLError, ConfigError) as e:
+        console.print(f"[red]Error reading existing corrections: {e}[/red]")
+        return 1
+
+    # Merge (new corrections override existing)
+    merged = {**existing, **result.corrections}
+    new_count = len(result.corrections)
+    override_count = len(set(result.corrections.keys()) & set(existing.keys()))
+
+    # Save merged corrections
+    try:
+        save_corrections(corrections_path, merged)
+    except OSError as e:
+        console.print(f"[red]Error saving corrections: {e}[/red]")
+        return 1
+
+    # Display results
+    console.print(f"[green]Imported {new_count} corrections[/green]")
+    if override_count > 0:
+        console.print(f"[dim]  ({override_count} overrode existing corrections)[/dim]")
+    console.print(f"[green]Total corrections: {len(merged)}[/green]")
+
+    if result.skipped_count > 0:
+        console.print(f"\n[yellow]Skipped {result.skipped_count} rows:[/yellow]")
+        for reason in result.skipped_reasons[:10]:  # Show first 10
+            console.print(f"[dim]  - {reason}[/dim]")
+        if len(result.skipped_reasons) > 10:
+            console.print(f"[dim]  ... and {len(result.skipped_reasons) - 10} more[/dim]")
+
+    console.print(f"\n[dim]Corrections saved to: {corrections_path}[/dim]")
+
+    return 0
 
 
 def validate_config(args: argparse.Namespace) -> int:
@@ -753,6 +994,23 @@ def main() -> int:
     if args.validate_only:
         return validate_config(args)
 
+    # Handle corrections management commands (no input-dir required)
+    corrections_path = args.corrections_file or (args.config_dir / "corrections.yaml")
+
+    if args.show_corrections:
+        return show_corrections_command(corrections_path)
+
+    if args.clear_corrections:
+        return clear_corrections_command(corrections_path, force=args.force)
+
+    if args.import_corrections:
+        return import_corrections_command(
+            args.import_corrections,
+            corrections_path,
+            args.config_dir,
+            args.categories,
+        )
+
     # Validate required arguments for processing mode
     if args.input_dir is None:
         console.print("[red]Error: --input-dir is required[/red]")
@@ -778,6 +1036,7 @@ def main() -> int:
             settings_path=args.config,
             accounts_path=args.accounts,
             categories_path=args.categories,
+            corrections_path=corrections_path,
             config_dir=args.config_dir,
         )
     except FileNotFoundError as e:
@@ -824,6 +1083,7 @@ def main() -> int:
     # Track statistics
     total_files = 0
     parsed_files = 0
+    total_raw_transactions = 0
     skipped_files: list[str] = []
     error_list: list[str] = []
     all_transactions: list[Transaction] = []
@@ -869,18 +1129,29 @@ def main() -> int:
         task = progress.add_task("Parsing files...", total=len(files_to_parse))
 
         for file_path in files_to_parse:
-            progress.console.print(f"  Parsing {file_path.name}")
-            progress.update(task, advance=1)
             account = file_account_map[file_path]
 
             # Parse file
             try:
                 raw_transactions = detector.parse_file(file_path)
+                file_txn_count = len(raw_transactions)
+                total_raw_transactions += file_txn_count
 
                 # Normalize transactions
                 transactions = normalizer.normalize(raw_transactions, account)
                 all_transactions.extend(transactions)
                 parsed_files += 1
+
+                # Success output - show both counts when they differ
+                normalized_count = len(transactions)
+                if normalized_count == file_txn_count:
+                    progress.console.print(
+                        f"  [green]✓[/green] {file_path.name}: {file_txn_count} transactions"
+                    )
+                else:
+                    progress.console.print(
+                        f"  [green]✓[/green] {file_path.name}: {normalized_count}/{file_txn_count} transactions"
+                    )
 
             except ParseError as e:
                 error_msg = f"{file_path.name}: {e}"
@@ -889,6 +1160,10 @@ def main() -> int:
                     return 1
                 error_list.append(error_msg)
                 logger.warning(error_msg)
+                # Failure output
+                progress.console.print(
+                    f"  [red]✗[/red] {file_path.name}: failed - {e}"
+                )
             except Exception as e:
                 error_msg = f"{file_path.name}: Unexpected error: {e}"
                 if args.strict:
@@ -896,8 +1171,26 @@ def main() -> int:
                     return 1
                 error_list.append(error_msg)
                 logger.error(error_msg)
+                # Failure output
+                progress.console.print(
+                    f"  [red]✗[/red] {file_path.name}: failed - {e}"
+                )
 
-    console.print(f"Parsed {len(all_transactions)} transactions from {parsed_files} files")
+            progress.update(task, advance=1)
+
+    if config.start_date or config.end_date:
+        # Date filter active - show ratio with date context
+        date_info = f"{config.start_date or 'start'} to {config.end_date or 'present'}"
+        console.print(
+            f"Parsed {len(all_transactions)}/{total_raw_transactions} transactions "
+            f"from {parsed_files} files (date range: {date_info})"
+        )
+    else:
+        # No date filter - show normalization ratio
+        console.print(
+            f"Parsed {len(all_transactions)}/{total_raw_transactions} transactions "
+            f"from {parsed_files} files"
+        )
 
     if not all_transactions:
         console.print("[yellow]No transactions found.[/yellow]")
