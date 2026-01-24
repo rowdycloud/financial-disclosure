@@ -808,8 +808,8 @@ class ExcelWriter:
         for account_id, account in sorted_accounts:
             txns = by_account.get(account_id, [])
             opening = account.opening_balance if account.opening_balance is not None else Decimal("0")
-            credits = sum(t.amount for t in txns if t.amount > 0)
-            debits = sum(t.amount for t in txns if t.amount < 0)
+            credits = sum((t.amount for t in txns if t.amount > 0), Decimal("0"))
+            debits = sum((t.amount for t in txns if t.amount < 0), Decimal("0"))
             closing = opening + credits + debits
 
             ws.append([
