@@ -1,6 +1,6 @@
 # Task: Add Opening Balance Row to Per-Account Sheets
 
-> **Status:** 🔲 Pending
+> **Status:** ✅ Complete (PR #10)
 > **Prerequisite:** ✅ Task 04 complete (PR #9) - Account Summary sheet implemented
 
 ## Objective
