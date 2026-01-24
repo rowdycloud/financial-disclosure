@@ -705,6 +705,11 @@ class ExcelWriter:
                 by_account[txn.account_name] = []
             by_account[txn.account_name].append(txn)
 
+        # Build lookup: account_name -> Account object
+        account_by_name = {
+            account.name: account for account in self.config.accounts.values()
+        }
+
         for account_name, account_txns in sorted(by_account.items()):
             # Sanitize and truncate sheet name (Excel limit is 31 chars)
             # Excel doesn't allow: * ? / \ [ ] in sheet names
@@ -721,10 +726,33 @@ class ExcelWriter:
                 cell.font = self.header_font
                 cell.fill = self.header_fill
 
+            # Track starting row for transactions (2 = after header, 3 = after opening balance)
+            data_start_row = 2
+
+            # Add opening balance row if available
+            account = account_by_name.get(account_name)
+            if account and account.opening_balance is not None:
+                # Pass date object directly (not string) for consistent Excel date handling
+                ws.cell(row=2, column=1, value=account.opening_balance_date)
+                ws.cell(row=2, column=2, value="[Opening Balance]")
+                balance_cell = ws.cell(
+                    row=2, column=5, value=float(account.opening_balance)
+                )
+                balance_cell.number_format = self._money_format()
+
+                # Style: italic gray text, light gray background
+                for col in range(1, 6):
+                    cell = ws.cell(row=2, column=col)
+                    cell.font = Font(italic=True, color="666666")
+                    cell.fill = PatternFill("solid", fgColor="F5F5F5")
+
+                data_start_row = 3
+
             # Sort by date
             sorted_txns = sorted(account_txns, key=lambda t: (t.date, t.description))
 
-            for row, txn in enumerate(sorted_txns, 2):
+            for idx, txn in enumerate(sorted_txns):
+                row = data_start_row + idx
                 ws.cell(row=row, column=1, value=txn.date)
                 ws.cell(row=row, column=2, value=sanitize_for_csv(txn.description))
                 ws.cell(row=row, column=3, value=sanitize_for_csv(self._get_category_name(txn.category)))

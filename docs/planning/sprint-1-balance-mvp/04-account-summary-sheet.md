@@ -1,5 +1,7 @@
 # Task: Add Account Summary Sheet to Excel Output
 
+> **Status:** ✅ Complete (PR #9)
+
 ## Objective
 Add a new "Account Summary" sheet showing balance overview per account.
 
