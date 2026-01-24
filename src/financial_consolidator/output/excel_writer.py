@@ -705,11 +705,6 @@ class ExcelWriter:
                 by_account[txn.account_name] = []
             by_account[txn.account_name].append(txn)
 
-        # Build lookup: account_name -> Account object
-        account_by_name = {
-            account.name: account for account in self.config.accounts.values()
-        }
-
         for account_name, account_txns in sorted(by_account.items()):
             # Sanitize and truncate sheet name (Excel limit is 31 chars)
             # Excel doesn't allow: * ? / \ [ ] in sheet names
@@ -730,7 +725,9 @@ class ExcelWriter:
             data_start_row = 2
 
             # Add opening balance row if available
-            account = account_by_name.get(account_name)
+            # Use account_id from first transaction (unique) rather than account_name (not unique)
+            account_id = account_txns[0].account_id
+            account = self.config.accounts.get(account_id)
             if account and account.opening_balance is not None:
                 # Pass date object directly (not string) for consistent Excel date handling
                 ws.cell(row=2, column=1, value=account.opening_balance_date)
