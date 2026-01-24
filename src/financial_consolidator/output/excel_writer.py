@@ -721,10 +721,35 @@ class ExcelWriter:
                 cell.font = self.header_font
                 cell.fill = self.header_fill
 
+            # Track starting row for transactions (2 = after header, 3 = after opening balance)
+            data_start_row = 2
+
+            # Add opening balance row if available
+            # Use account_id from first transaction (unique) rather than account_name (not unique)
+            account_id = account_txns[0].account_id
+            account = self.config.accounts.get(account_id)
+            if account and account.opening_balance is not None:
+                # Pass date object directly (not string) for consistent Excel date handling
+                ws.cell(row=2, column=1, value=account.opening_balance_date)
+                ws.cell(row=2, column=2, value="[Opening Balance]")
+                balance_cell = ws.cell(
+                    row=2, column=5, value=float(account.opening_balance)
+                )
+                balance_cell.number_format = self._money_format()
+
+                # Style: italic gray text, light gray background
+                for col in range(1, 6):
+                    cell = ws.cell(row=2, column=col)
+                    cell.font = Font(italic=True, color="666666")
+                    cell.fill = PatternFill("solid", fgColor="F5F5F5")
+
+                data_start_row = 3
+
             # Sort by date
             sorted_txns = sorted(account_txns, key=lambda t: (t.date, t.description))
 
-            for row, txn in enumerate(sorted_txns, 2):
+            for idx, txn in enumerate(sorted_txns):
+                row = data_start_row + idx
                 ws.cell(row=row, column=1, value=txn.date)
                 ws.cell(row=row, column=2, value=sanitize_for_csv(txn.description))
                 ws.cell(row=row, column=3, value=sanitize_for_csv(self._get_category_name(txn.category)))
