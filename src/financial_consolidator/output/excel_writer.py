@@ -1,5 +1,6 @@
 """Excel workbook writer for financial consolidation output."""
 
+from decimal import Decimal
 from pathlib import Path
 
 from financial_consolidator.config import Config
@@ -106,6 +107,7 @@ class ExcelWriter:
         self._create_deposits_sheet(wb, transactions)
         self._create_transfers_sheet(wb, transactions)
         self._create_account_sheets(wb, transactions)
+        self._create_account_summary(wb, transactions)
         self._create_category_analysis(wb, transactions)
         self._create_anomalies_sheet(wb, transactions, date_gaps or [])
 
@@ -746,6 +748,99 @@ class ExcelWriter:
             ws.column_dimensions["E"].width = 12
 
             ws.freeze_panes = "A2"
+
+    def _create_account_summary(
+        self, wb: "Workbook", transactions: list[Transaction]
+    ) -> None:
+        """Create Account Summary sheet showing balance overview per account.
+
+        Args:
+            wb: Workbook to add sheet to.
+            transactions: Transaction data.
+        """
+        from collections import defaultdict
+
+        ws = wb.create_sheet("Account Summary")
+
+        # Headers using existing instance variables
+        headers = ["Account", "Opening Balance", "Total Credits", "Total Debits", "Closing Balance"]
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col, value=header)
+            cell.font = self.header_font
+            cell.fill = self.header_fill
+            cell.alignment = self.centered
+
+        # Group transactions by account_id
+        by_account: dict[str, list[Transaction]] = defaultdict(list)
+        for txn in transactions:
+            by_account[txn.account_id].append(txn)
+
+        # Warn about orphaned transactions (account_id not in config)
+        config_account_ids = set(self.config.accounts.keys())
+        orphaned_account_ids = set(by_account.keys()) - config_account_ids
+        if orphaned_account_ids:
+            orphaned_txn_count = sum(len(by_account[aid]) for aid in orphaned_account_ids)
+            logger.warning(
+                f"Account Summary: {orphaned_txn_count} transaction(s) from "
+                f"{len(orphaned_account_ids)} unknown account(s) not included: "
+                f"{orphaned_account_ids}. "
+                f"Add these accounts to accounts.yaml to include them in the summary."
+            )
+
+        # Sort accounts by display_order, then name
+        sorted_accounts = sorted(
+            self.config.accounts.items(),
+            key=lambda x: (x[1].display_order, x[1].name)
+        )
+
+        # Calculate per account
+        # Note: opening_balance may be None if not explicitly set and balance inference
+        # didn't run or couldn't infer a value. We default to 0, which produces
+        # mathematically consistent closing balances (Opening + Credits + Debits) but may
+        # not reflect actual account balances unless opening_balance is truly zero or
+        # explicitly set. Users should set opening_balance for accounts with pre-existing
+        # balances (credit cards, loans, or checking accounts opened before tracking began).
+        for account_id, account in sorted_accounts:
+            txns = by_account.get(account_id, [])
+            opening = account.opening_balance if account.opening_balance is not None else Decimal("0")
+            credits = sum(t.amount for t in txns if t.amount > 0)
+            debits = sum(t.amount for t in txns if t.amount < 0)
+            closing = opening + credits + debits
+
+            ws.append([
+                account.name,
+                float(opening),
+                float(credits),
+                float(debits),
+                float(closing),
+            ])
+
+        # Format currency columns (B through E)
+        money_fmt = self._money_format()
+        for row in ws.iter_rows(min_row=2, min_col=2, max_col=5):
+            for cell in row:
+                cell.number_format = money_fmt
+                cell.alignment = Alignment(horizontal="right")
+
+        # Set column widths
+        ws.column_dimensions["A"].width = 25
+        for col_letter in ["B", "C", "D", "E"]:
+            ws.column_dimensions[col_letter].width = 18
+
+        # Add totals row (only if there are data rows to sum)
+        if ws.max_row > 1:
+            last_row = ws.max_row + 1
+            ws.cell(row=last_row, column=1, value="TOTAL").font = Font(bold=True)
+
+            for col in range(2, 6):
+                col_letter = get_column_letter(col)
+                formula = f"=SUM({col_letter}2:{col_letter}{last_row - 1})"
+                cell = ws.cell(row=last_row, column=col, value=formula)
+                cell.number_format = money_fmt
+                cell.font = Font(bold=True)
+
+        # Freeze header row
+        ws.freeze_panes = "A2"
 
     def _create_category_analysis(
         self, wb: "Workbook", transactions: list[Transaction]
