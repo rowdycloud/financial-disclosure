@@ -1,81 +1,95 @@
-# Account Definitions and File Mappings
-# Copy this file to accounts.yaml and customize for your accounts.
+# =============================================================================
+# ACCOUNTS CONFIGURATION
+# =============================================================================
+#
+# This file defines your financial accounts and their settings.
 #
 # Usage: cp accounts_sample.yaml accounts.yaml
 #
 # The tool can also create accounts.yaml interactively when it encounters
 # unmapped files. Use --no-interactive to skip unmapped files instead.
+#
+# OPENING BALANCE
+# ---------------
+# The opening_balance field sets the starting balance for running balance
+# calculations. There are three ways to set it:
+#
+# 1. CLI Command (recommended for existing accounts):
+#    financial-consolidator --set-balance ACCOUNT_ID --balance AMOUNT --balance-date DATE
+#    Example: --set-balance chase_checking --balance 5234.56 --balance-date 2024-01-01
+#
+# 2. Interactive Prompt (during new account creation):
+#    When a new file is detected and you create an account interactively,
+#    you'll be prompted to enter the opening balance.
+#
+# 3. Auto-Inference (leave unset):
+#    If opening_balance is not set, the system will attempt to infer it
+#    from the first transaction's balance column (if available in CSV).
+#    Formula: opening_balance = first_balance - first_amount
+#    If inference fails, defaults to $0.00.
+#
+# CREDIT CARD NOTE
+# ----------------
+# Balance inference works best for asset accounts (checking/savings).
+# For credit cards, the "balance" column semantics vary by bank:
+# - Some show amount owed (positive = debt)
+# - Some show available credit
+# If inference produces unexpected results, use --set-balance to correct.
+#
+# =============================================================================
 
 # File to account mappings
 # Map specific filenames to account IDs
 file_mappings:
-  # Example mappings:
-  # "chase_checking_2024.csv": "chase_checking"
-  # "amex_gold_jan2024.ofx": "amex_gold"
-  # "statement_jan2024.pdf": "bofa_checking"
+  chase-checking-2024.CSV: chase_checking
+  chase-checking-2025.CSV: chase_checking
+  amex-platinum-*.csv: amex_platinum
+  new-savings-*.csv: new_savings
 
 # Account definitions
 accounts:
-  # Example checking account
+  # Example: Account with explicit opening balance
   chase_checking:
     name: "Chase Checking ****1234"
     type: "checking"
     institution: "Chase"
     account_number_masked: "1234"
-    # Opening balance for running balance calculation (optional)
-    opening_balance: 0.00
+    # Opening balance set via CLI or interactive prompt
+    # This is the balance BEFORE the first transaction in your data
+    opening_balance: 5234.56
     opening_balance_date: "2024-01-01"
-    # Glob patterns to auto-match files (case-insensitive)
     source_file_patterns:
       - "*chase*checking*.csv"
       - "*chase*checking*.ofx"
     display_order: 1
 
-  # Example credit card
-  amex_gold:
-    name: "Amex Gold ****5678"
+  # Example: Account without opening balance (will be inferred)
+  amex_platinum:
+    name: "Amex Platinum ****5678"
     type: "credit_card"
     institution: "American Express"
     account_number_masked: "5678"
-    opening_balance: -2500.00
-    opening_balance_date: "2024-01-01"
+    # opening_balance not set - will be inferred from transaction data
+    # If CSV has a Balance column, system calculates:
+    #   opening = first_balance - first_amount
+    # Otherwise defaults to $0.00
     source_file_patterns:
-      - "*amex*.csv"
-      - "*amex*.ofx"
-      - "*american_express*.csv"
+      - "*amex*platinum*.csv"
+      - "*amex*platinum*.ofx"
     display_order: 2
 
-  # Example savings account
-  ally_savings:
-    name: "Ally Savings ****9012"
+  # Example: Account starting from zero
+  new_savings:
+    name: "New Savings Account"
     type: "savings"
-    institution: "Ally Bank"
+    institution: "Local Bank"
     account_number_masked: "9012"
-    opening_balance: 10000.00
-    opening_balance_date: "2024-01-01"
+    # Explicit zero - this account started with no balance
+    opening_balance: 0
+    opening_balance_date: "2024-06-01"
     source_file_patterns:
-      - "*ally*.csv"
-      - "*ally*.ofx"
+      - "*new*savings*.csv"
     display_order: 3
-
-  # Example investment account
-  fidelity_brokerage:
-    name: "Fidelity Brokerage ****3456"
-    type: "investment"
-    institution: "Fidelity"
-    account_number_masked: "3456"
-    source_file_patterns:
-      - "*fidelity*.csv"
-    display_order: 10
-
-  # Example crypto account
-  coinbase_wallet:
-    name: "Coinbase Wallet"
-    type: "crypto"
-    institution: "Coinbase"
-    source_file_patterns:
-      - "*coinbase*.csv"
-    display_order: 20
 
 # Account types supported:
 # - checking
