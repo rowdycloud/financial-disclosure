@@ -788,18 +788,23 @@ class ExcelWriter:
             )
 
         # Sort accounts by display_order, then name
+        # Note: We include all accounts (active and inactive) to match behavior of other
+        # sheets (All Transactions, P&L Summary, etc.) and avoid financial discrepancies.
         sorted_accounts = sorted(
             self.config.accounts.items(),
             key=lambda x: (x[1].display_order, x[1].name)
         )
 
+        # Warn about accounts with unknown opening balance (check first, build list only if needed)
+        if any(acc.opening_balance is None for _, acc in sorted_accounts):
+            missing_balance_names = [acc.name for _, acc in sorted_accounts if acc.opening_balance is None]
+            logger.warning(
+                f"Account Summary: {len(missing_balance_names)} account(s) have no "
+                f"opening_balance set (defaulting to $0): {missing_balance_names}. "
+                f"Closing balances may be incorrect. Use 'set-balance' command to set them."
+            )
+
         # Calculate per account
-        # Note: opening_balance may be None if not explicitly set and balance inference
-        # didn't run or couldn't infer a value. We default to 0, which produces
-        # mathematically consistent closing balances (Opening + Credits + Debits) but may
-        # not reflect actual account balances unless opening_balance is truly zero or
-        # explicitly set. Users should set opening_balance for accounts with pre-existing
-        # balances (credit cards, loans, or checking accounts opened before tracking began).
         for account_id, account in sorted_accounts:
             txns = by_account.get(account_id, [])
             opening = account.opening_balance if account.opening_balance is not None else Decimal("0")
