@@ -128,4 +128,4 @@ from openpyxl.utils import get_column_letter
    - Closing = Opening + Credits + Debits
 6. Verify currency formatting ($X,XXX.XX)
 7. Verify totals row at bottom
-8. Run existing tests: all 37 tests pass
+8. Run existing tests: all 52 tests pass

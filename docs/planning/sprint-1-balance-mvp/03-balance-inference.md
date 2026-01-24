@@ -1,6 +1,10 @@
 # Task: Add Post-Parsing Balance Inference (Stage B)
 
+> **Status:** ✅ Complete (PR #8)
+> **Prerequisite:** Task 02 complete (PR #7) - `opening_balance: Decimal | None` type now in place
+
 ## Objective
+
 After file parsing, infer opening balance for accounts where it wasn't set during interactive prompts.
 
 ## Location
@@ -95,10 +99,58 @@ save_accounts(accounts_path, config)
 Balance inference works best for asset accounts (checking/savings). For liability accounts (credit cards), the "balance" column semantics may differ by bank. If inference produces unexpected results, users should use `--set-balance` to correct.
 
 ## Verification
+
 1. Create new account with blank balance (leave opening balance empty during prompts)
 2. Ensure test CSV has a "Balance" column with values
 3. Run processing: `PYTHONPATH=src python -c "from financial_consolidator.cli import main; main()" -i ./test_data -o ./output.xlsx`
 4. Verify log shows "Inferred opening balance for {account}: ${amount}"
 5. Verify accounts.yaml now contains opening_balance and opening_balance_date
 6. Verify the math: opening_balance = first_balance - first_amount
-7. Run existing tests: all 37 tests pass
+7. Run existing tests: all 52 tests pass (updated from 37)
+
+## Alignment Notes (from Task 02)
+
+- Task 02 changed `opening_balance` type to `Decimal | None` - this task correctly checks `is None`
+- Config serialization: None values NOT saved to YAML (on reload becomes None, triggering inference)
+- **Apply same validation as Task 02**: ±$1 trillion max, dates ≥1970-01-01, not in future
+- Inferred values should be rounded to 2 decimals with ROUND_HALF_UP
+
+---
+
+## Implementation Summary (PR #8)
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| cli.py | Added `_apply_default_balance()` and `infer_opening_balances()` functions (+172 lines, ~line 1620) |
+
+### Key Design Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| No model changes | Leveraged existing `raw_data.balance` field preserved during normalization (simpler than planned `_raw_balance` approach) |
+| Consistent sorting | Uses same sort key as balance_calculator for deterministic "first transaction" |
+| Documented assumption | CSV balance is assumed to be AFTER transaction (most common format) |
+
+### Functions Added
+
+- **`_apply_default_balance()`** - Helper that applies $0.00 default when inference fails, with user warning
+- **`infer_opening_balances()`** - Main inference function:
+  - Identifies accounts where `opening_balance is None`
+  - Reads raw balance from `first_txn.raw_data.balance`
+  - Calculates: `opening_balance = csv_balance - transaction_amount`
+  - Applies same validation as Task 02
+  - Falls back to $0.00 with warning if inference fails
+  - Prints note for credit card/loan accounts to verify balance sign
+
+### Integration
+
+- Called after Phase 2 parsing (~line 1620), before categorization
+- Uses existing `save_accounts()` call at end of run
+- Save condition updated to save when inference occurs (even in non-interactive mode)
+
+### Tests
+
+- All 52 existing tests pass
+- Cubic review iterated until clean
