@@ -837,8 +837,8 @@ def infer_opening_balances(
         console: Rich console for output.
 
     Returns:
-        Number of accounts where balance was successfully inferred.
-        Accounts that fell back to $0.00 are not included in this count.
+        Total number of accounts where balance was set (including fallbacks).
+        This is used to determine if accounts.yaml needs to be saved.
     """
     from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
@@ -998,7 +998,8 @@ def infer_opening_balances(
             f"  [dim]({fallback_count} account(s) defaulted to $0.00)[/dim]"
         )
 
-    return success_count
+    # Return total accounts modified (success + fallback) for save decision
+    return success_count + fallback_count
 
 
 def import_corrections_command(
