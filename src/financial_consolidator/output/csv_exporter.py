@@ -441,9 +441,9 @@ class CSVExporter:
             cat_type = cat.category_type.value if cat.category_type else None
             month_key = txn.date.strftime("%Y-%m")
 
-            # Use abs() for expenses (match P&L behavior)
+            # Use signed math: negative amounts (expenses) add, positive (refunds) subtract
             if cat_type == "expense":
-                amount = abs(float(txn.amount))
+                amount = -float(txn.amount)
             else:
                 amount = float(txn.amount)
 

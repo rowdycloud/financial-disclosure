@@ -58,7 +58,8 @@ def generate_pl_summary(transactions: list[Transaction], config: Config) -> PLSu
             year_cats[cat_name] = year_cats.get(cat_name, Decimal("0")) + t.amount
         elif cat_type == "expense":
             year_cats = expense_by_year.setdefault(year, {})
-            year_cats[cat_name] = year_cats.get(cat_name, Decimal("0")) + abs(t.amount)
+            # Use signed math: negative amounts (expenses) add, positive (refunds) subtract
+            year_cats[cat_name] = year_cats.get(cat_name, Decimal("0")) - t.amount
         elif cat_type == "transfer":
             year_cats = transfer_by_year.setdefault(year, {})
             year_cats[cat_name] = year_cats.get(cat_name, Decimal("0")) + t.amount
