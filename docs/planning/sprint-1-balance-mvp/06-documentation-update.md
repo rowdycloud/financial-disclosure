@@ -1,5 +1,7 @@
 # Task: Update accounts_sample.yaml Documentation
 
+> **Status:** ✅ Complete (PR #11)
+
 ## Objective
 Document opening_balance fields with examples and explain the three ways to set them.
 
