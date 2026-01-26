@@ -233,9 +233,9 @@ class CSVExporter:
                 "Fingerprint"
             ])
 
-            # Sort and write data
+            # Sort with fingerprint tiebreaker for deterministic ordering
             sorted_txns = sorted(
-                transactions, key=lambda t: (t.date, t.account_name, t.description)
+                transactions, key=lambda t: (t.date, t.account_name, t.description, t.fingerprint)
             )
 
             for txn in sorted_txns:
@@ -291,9 +291,9 @@ class CSVExporter:
                 "Amount", "Balance", "Source File"
             ])
 
-            # Sort by date, then account, then description
+            # Sort with fingerprint tiebreaker for deterministic ordering
             sorted_deposits = sorted(
-                deposits, key=lambda t: (t.date, t.account_name, t.description)
+                deposits, key=lambda t: (t.date, t.account_name, t.description, t.fingerprint)
             )
 
             for txn in sorted_deposits:
@@ -342,9 +342,9 @@ class CSVExporter:
                 "Amount", "Balance", "Source File"
             ])
 
-            # Sort by date, then account, then description
+            # Sort with fingerprint tiebreaker for deterministic ordering
             sorted_transfers = sorted(
-                transfers, key=lambda t: (t.date, t.account_name, t.description)
+                transfers, key=lambda t: (t.date, t.account_name, t.description, t.fingerprint)
             )
 
             for txn in sorted_transfers:
@@ -395,7 +395,7 @@ class CSVExporter:
                 writer = csv.writer(f)
                 writer.writerow(["Date", "Description", "Category", "Amount", "Balance"])
 
-                sorted_txns = sorted(account_txns, key=lambda t: (t.date, t.description))
+                sorted_txns = sorted(account_txns, key=lambda t: (t.date, t.description, t.fingerprint))
                 for txn in sorted_txns:
                     writer.writerow([
                         date_to_iso(txn.date),
@@ -504,7 +504,7 @@ class CSVExporter:
             writer.writerow(["Date", "Account", "Description", "Amount", "Reason"])
 
             anomaly_txns = [t for t in transactions if t.is_anomaly]
-            for txn in sorted(anomaly_txns, key=lambda t: t.date):
+            for txn in sorted(anomaly_txns, key=lambda t: (t.date, t.description, t.fingerprint)):
                 writer.writerow([
                     date_to_iso(txn.date),
                     sanitize_for_csv(txn.account_name),

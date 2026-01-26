@@ -65,11 +65,10 @@ class BalanceCalculator:
         if account and account.opening_balance is not None:
             opening_balance = account.opening_balance
 
-        # Sort by stable fields for cross-run consistency
+        # Sort by date/description with fingerprint tiebreaker for deterministic ordering
         # Use sorted() to avoid modifying the caller's list order
-        # source_file and source_line provide stable ordering instead of UUID which changes between runs
         sorted_transactions = sorted(
-            transactions, key=lambda t: (t.date, t.description, t.amount, t.source_file, t.source_line or 0)
+            transactions, key=lambda t: (t.date, t.description, t.fingerprint)
         )
 
         # Calculate running balance, excluding transactions before opening_balance_date
@@ -130,7 +129,7 @@ class BalanceCalculator:
 
             # Get closing balance from last transaction
             sorted_txns = sorted(
-                account_txns, key=lambda t: (t.date, t.description, t.amount, t.id)
+                account_txns, key=lambda t: (t.date, t.description, t.fingerprint)
             )
             closing = (
                 sorted_txns[-1].running_balance

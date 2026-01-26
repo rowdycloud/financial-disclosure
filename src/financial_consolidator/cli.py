@@ -867,15 +867,7 @@ def infer_opening_balances(
         # Get transactions for this account, sorted chronologically
         # Use same sort key as balance_calculator for consistency
         account_txns = [t for t in all_transactions if t.account_id == account.id]
-        account_txns.sort(
-            key=lambda t: (
-                t.date,
-                t.description,
-                t.amount,
-                t.source_file,
-                t.source_line or 0,
-            )
-        )
+        account_txns.sort(key=lambda t: (t.date, t.description, t.fingerprint))
 
         first_txn = account_txns[0] if account_txns else None
 

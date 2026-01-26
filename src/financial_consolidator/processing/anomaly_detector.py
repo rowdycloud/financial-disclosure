@@ -216,8 +216,8 @@ class AnomalyDetector:
             if len(account_txns) < 2:
                 continue
 
-            # Sort by date
-            sorted_txns = sorted(account_txns, key=lambda t: t.date)
+            # Sort with fingerprint tiebreaker for deterministic ordering
+            sorted_txns = sorted(account_txns, key=lambda t: (t.date, t.description, t.fingerprint))
 
             # Check gaps between consecutive transactions
             for i in range(1, len(sorted_txns)):

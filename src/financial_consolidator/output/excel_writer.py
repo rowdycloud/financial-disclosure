@@ -42,12 +42,12 @@ class ExcelWriter:
 
     @staticmethod
     def _txn_sort_key(txn: Transaction) -> tuple:
-        """Standard sort key for transactions (date, account, description).
+        """Standard sort key for transactions with fingerprint tiebreaker.
 
         Used across All Transactions, Review Queue, Deposits, and Transfers sheets
         to ensure consistent row ordering.
         """
-        return (txn.date, txn.account_name, txn.description)
+        return (txn.date, txn.account_name, txn.description, txn.fingerprint)
 
     def __init__(self, config: Config):
         """Initialize Excel writer.
@@ -100,7 +100,8 @@ class ExcelWriter:
             wb.remove(wb.active)
 
         # Create sheets
-        self._create_category_lookup(wb)  # Must come first for VLOOKUP references
+        # Category lookup must come first for VLOOKUP references
+        self._unique_category_count = self._create_category_lookup(wb)
         self._create_pl_summary(wb, pl_summary)
         self._create_master_list(wb, transactions)
         self._create_review_queue(wb, transactions)
@@ -116,11 +117,14 @@ class ExcelWriter:
         wb.save(output_path)
         logger.info(f"Excel workbook saved: {output_path}")
 
-    def _create_category_lookup(self, wb: "Workbook") -> None:
+    def _create_category_lookup(self, wb: "Workbook") -> int:
         """Create hidden Category Lookup sheet for VLOOKUP and data validation.
 
         Args:
             wb: Workbook to add sheet to.
+
+        Returns:
+            Number of unique category names written to the sheet.
         """
         ws = wb.create_sheet("Category Lookup")
 
@@ -137,13 +141,18 @@ class ExcelWriter:
             key=lambda c: c.name
         )
 
-        # Write category data
+        # Write category data, deduplicating by name for VLOOKUP reliability.
+        # Previously excluded subcategories, which broke VLOOKUP when transactions
+        # were categorized with subcategory IDs. Now includes all categories but
+        # deduplicates by name since VLOOKUP returns the first match.
         row = 2
+        seen_names: set[str] = set()
         for category in categories:
-            # Skip subcategories (those with parent_id)
-            if category.parent_id:
+            if category.name in seen_names:
+                # Skip duplicate names - VLOOKUP would return the first match anyway
+                logger.warning(f"Duplicate category name '{category.name}' in config - VLOOKUP may return wrong type")
                 continue
-
+            seen_names.add(category.name)
             ws.cell(row=row, column=1, value=category.name)
             cat_type = category.category_type.value if category.category_type else ""
             ws.cell(row=row, column=2, value=cat_type)
@@ -158,7 +167,9 @@ class ExcelWriter:
         # which would break VLOOKUP formulas in Category Type column
         ws.sheet_state = "veryHidden"
 
-        logger.debug(f"Created Category Lookup sheet with {row - 2} categories")
+        unique_count = row - 2
+        logger.debug(f"Created Category Lookup sheet with {unique_count} categories")
+        return unique_count
 
     def _create_pl_summary(
         self, wb: "Workbook", pl_summary: PLSummary
@@ -452,8 +463,8 @@ class ExcelWriter:
             ws.column_dimensions[get_column_letter(i)].width = width
 
         # Add data validation dropdown on Category column (D)
-        # Reference category names from Category Lookup sheet
-        num_categories = len([c for c in self.config.categories.values() if not c.parent_id])
+        # Reference unique category names from Category Lookup sheet
+        num_categories = getattr(self, '_unique_category_count', len(self.config.categories))
         if num_categories > 0 and len(sorted_txns) > 0:
             dv = DataValidation(
                 type="list",
@@ -745,8 +756,8 @@ class ExcelWriter:
 
                 data_start_row = 3
 
-            # Sort by date
-            sorted_txns = sorted(account_txns, key=lambda t: (t.date, t.description))
+            # Sort by date with fingerprint tiebreaker for deterministic ordering
+            sorted_txns = sorted(account_txns, key=lambda t: (t.date, t.description, t.fingerprint))
 
             for idx, txn in enumerate(sorted_txns):
                 row = data_start_row + idx
@@ -981,7 +992,7 @@ class ExcelWriter:
 
         row = 3
         anomaly_txns = [t for t in transactions if t.is_anomaly]
-        for txn in sorted(anomaly_txns, key=lambda t: t.date):
+        for txn in sorted(anomaly_txns, key=lambda t: (t.date, t.description, t.fingerprint)):
             ws.cell(row=row, column=1, value=txn.date)
             ws.cell(row=row, column=2, value=sanitize_for_csv(txn.account_name))
             ws.cell(row=row, column=3, value=sanitize_for_csv(txn.description))

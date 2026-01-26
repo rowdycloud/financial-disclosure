@@ -72,11 +72,10 @@ class Deduplicator:
             if len(group) < 2:
                 continue
 
-            # Sort by stable fields for cross-run consistency
-            # Use source_file and source_line as tie-breakers instead of UUID (which changes between runs)
+            # Sort with fingerprint tiebreaker for deterministic ordering
             # This ensures the same transaction is flagged as duplicate vs original consistently
             sorted_group = sorted(
-                group, key=lambda t: (t.date, t.description, t.amount, t.source_file, t.source_line or 0)
+                group, key=lambda t: (t.date, t.description, t.fingerprint)
             )
 
             # Compare each pair
