@@ -9,7 +9,7 @@ config/
 ├── settings.yaml      # Global application settings
 ├── accounts.yaml      # Account definitions and file mappings
 ├── categories.yaml    # Category hierarchy and rules
-└── corrections.yaml   # User corrections (auto-managed)
+└── corrections.yaml   # Auto-generated when you import corrections
 ```
 
 ## Overriding Config Paths
@@ -51,7 +51,7 @@ ai:
   api_key_env: ANTHROPIC_API_KEY  # Environment variable name
   budget: 5.00                     # Max spend per run in USD
   confidence_threshold: 0.7        # Minimum confidence for auto-accept
-  model: claude-sonnet-4-20250514  # Model to use
+  model: claude-sonnet-4-5-20250929  # Model to use
 ```
 
 ### CLI Overrides
@@ -233,11 +233,19 @@ See [Category Corrections](05-category-corrections.md) for the full workflow.
 
 ## Sample Configuration
 
-A complete sample configuration is available at:
+Sample configuration files are available to help you get started:
 
 ```bash
-# Copy sample config to start customizing
+# Available sample files:
+# - config/accounts_sample.yaml
+# - config/categories_sample.yaml
+# - config/manual_categories_sample.yaml
+# - config/settings_sample.yaml
+
+# Copy sample configs to start customizing
 cp config/accounts_sample.yaml config/accounts.yaml
+cp config/categories_sample.yaml config/categories.yaml
+cp config/settings_sample.yaml config/settings.yaml
 ```
 
 ---

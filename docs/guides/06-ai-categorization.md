@@ -156,7 +156,7 @@ ai:
   api_key_env: ANTHROPIC_API_KEY   # Environment variable for API key
   budget: 5.00                      # Default budget per run
   confidence_threshold: 0.7         # Default confidence threshold
-  model: claude-sonnet-4-20250514  # Model to use
+  model: claude-sonnet-4-5-20250929  # Model to use
 ```
 
 CLI flags override these settings:

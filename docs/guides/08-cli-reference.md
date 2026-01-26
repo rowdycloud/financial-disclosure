@@ -205,7 +205,7 @@ Increase output detail. Can be used multiple times.
 | (none) | Warnings only |
 | `-v` | Info messages |
 | `-vv` | Debug messages |
-| `-vvv` | Trace messages |
+| `-vvv` | Debug messages (same as -vv) |
 
 ```bash
 # Standard verbose
