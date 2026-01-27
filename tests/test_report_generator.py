@@ -17,6 +17,7 @@ def create_transaction(
     trans_date: date = date(2025, 1, 15),
     description: str = "Test Transaction",
     account_id: str = "test_account",
+    account_name: str = "Test Account",
 ) -> Transaction:
     """Helper to create a Transaction for testing."""
     return Transaction(
@@ -25,7 +26,7 @@ def create_transaction(
         amount=amount,
         transaction_type=TransactionType.DEBIT if amount < 0 else TransactionType.CREDIT,
         account_id=account_id,
-        account_name="Test Account",
+        account_name=account_name,
         source_file="test.csv",
         category=category,
     )
@@ -237,21 +238,41 @@ class TestGeneratePLSummary:
     def test_accounts_list(self) -> None:
         """Test accounts list is correctly populated with unique, sorted names."""
         config = create_config_with_categories()
-        # All transactions use default account_name="Test Account" from helper
+        # Create transactions with distinct account names (unsorted order)
         transactions = [
             create_transaction(
-                Decimal("-50.00"), "dining", account_id="account_b"
+                Decimal("-50.00"),
+                "dining",
+                account_id="account_c",
+                account_name="Zeta Bank Checking",
             ),
             create_transaction(
-                Decimal("-50.00"), "dining", account_id="account_a"
+                Decimal("-50.00"),
+                "dining",
+                account_id="account_a",
+                account_name="Alpha Credit Card",
             ),
             create_transaction(
-                Decimal("-50.00"), "dining", account_id="account_b"
+                Decimal("-50.00"),
+                "dining",
+                account_id="account_b",
+                account_name="Beta Savings",
+            ),
+            create_transaction(
+                Decimal("-50.00"),
+                "dining",
+                account_id="account_c",
+                account_name="Zeta Bank Checking",  # Duplicate - should be deduplicated
             ),
         ]
 
         result = generate_pl_summary(transactions, config)
 
-        # All transactions have account_name="Test Account", so only 1 unique
-        assert len(result.accounts) == 1
-        assert result.accounts[0] == "Test Account"
+        # Verify uniqueness: 4 transactions but only 3 unique account names
+        assert len(result.accounts) == 3
+        # Verify sorting: accounts should be alphabetically sorted
+        assert result.accounts == [
+            "Alpha Credit Card",
+            "Beta Savings",
+            "Zeta Bank Checking",
+        ]
