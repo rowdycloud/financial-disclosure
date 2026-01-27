@@ -14,6 +14,7 @@ from financial_consolidator.models.category import (
     CategoryCorrection,
     CategoryRule,
     ManualOverride,
+    MatchMode,
 )
 from financial_consolidator.utils.logging_config import get_logger
 
@@ -798,3 +799,104 @@ def save_accounts(path: Path, config: Config) -> None:
                 pass  # Best effort cleanup
 
     logger.info(f"Saved accounts configuration to {path}")
+
+
+def save_categories(path: Path, config: Config) -> None:
+    """Save categories and rules to categories.yaml.
+
+    Uses atomic write (temp file + rename) to prevent corruption if
+    the process is interrupted during YAML serialization.
+
+    This is used to persist new categories created during correction import.
+
+    Args:
+        path: Path to save categories.yaml.
+        config: Config object with categories and rules.
+
+    Raises:
+        OSError: If file cannot be written.
+    """
+    import os
+    import tempfile
+
+    # Build categories list
+    categories_list: list[dict[str, object]] = []
+    for category in config.categories.values():
+        cat_dict: dict[str, object] = {
+            "id": category.id,
+            "name": category.name,
+            "type": category.category_type.value,
+        }
+        if category.parent_id:
+            cat_dict["parent"] = category.parent_id
+        if category.display_order:
+            cat_dict["display_order"] = category.display_order
+        if category.color:
+            cat_dict["color"] = category.color
+        categories_list.append(cat_dict)
+
+    # Build rules list
+    rules_list: list[dict[str, object]] = []
+    for rule in config.category_rules:
+        rule_dict: dict[str, object] = {
+            "id": rule.id,
+            "category": rule.category_id,
+        }
+        if rule.subcategory_id:
+            rule_dict["subcategory"] = rule.subcategory_id
+        if rule.keywords:
+            rule_dict["keywords"] = rule.keywords
+        if rule.regex_patterns:
+            rule_dict["regex_patterns"] = rule.regex_patterns
+        if rule.amount_min is not None:
+            rule_dict["amount_min"] = str(rule.amount_min)
+        if rule.amount_max is not None:
+            rule_dict["amount_max"] = str(rule.amount_max)
+        if rule.account_ids:
+            rule_dict["account_ids"] = rule.account_ids
+        if rule.priority:
+            rule_dict["priority"] = rule.priority
+        if not rule.is_active:
+            rule_dict["is_active"] = False
+        if rule.match_mode != MatchMode.SUBSTRING:
+            rule_dict["match_mode"] = rule.match_mode.value
+        rules_list.append(rule_dict)
+
+    data: dict[str, object] = {
+        "categories": categories_list,
+        "rules": rules_list,
+    }
+
+    # Ensure parent directory exists
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Atomic write: serialize to temp file first, then rename
+    # This prevents corruption if yaml.dump fails or process is interrupted
+    temp_fd, temp_path = tempfile.mkstemp(
+        dir=path.parent, prefix=".categories_", suffix=".yaml"
+    )
+    fd_owned = False  # Track if fd has been handed to file object
+    try:
+        with os.fdopen(temp_fd, "w", encoding="utf-8") as f:
+            fd_owned = True  # os.fdopen now owns the fd
+            yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+            f.flush()
+            os.fsync(f.fileno())
+        # Atomic rename (on POSIX systems)
+        Path(temp_path).replace(path)
+        temp_path = None  # Mark as successfully renamed
+    finally:
+        # Close fd if os.fdopen() failed before taking ownership
+        if not fd_owned:
+            try:
+                os.close(temp_fd)
+            except OSError:
+                pass
+        # Clean up temp file if rename didn't happen
+        if temp_path:
+            try:
+                Path(temp_path).unlink()
+            except OSError:
+                pass  # Best effort cleanup
+
+    logger.info(f"Saved {len(config.categories)} categories and {len(config.category_rules)} rules to {path}")
