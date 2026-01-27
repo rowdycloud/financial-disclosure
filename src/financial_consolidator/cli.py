@@ -18,6 +18,7 @@ from financial_consolidator.config import (
     load_config,
     load_corrections,
     save_accounts,
+    save_categories,
     save_corrections,
 )
 from financial_consolidator.models.account import Account, AccountType
@@ -994,11 +995,174 @@ def infer_opening_balances(
     return success_count + fallback_count
 
 
+def _extract_unknown_categories(skipped_reasons: list[str]) -> dict[str, list[int]]:
+    """Extract unknown category names from skipped reasons.
+
+    Args:
+        skipped_reasons: List of skip reason messages.
+
+    Returns:
+        Dictionary mapping unknown category names to list of row numbers.
+    """
+    import re
+
+    unknown_categories: dict[str, list[int]] = {}
+    pattern = re.compile(r"Row (\d+): Unknown category '([^']+)'")
+
+    for reason in skipped_reasons:
+        match = pattern.match(reason)
+        if match:
+            row_num = int(match.group(1))
+            category_name = match.group(2)
+            if category_name not in unknown_categories:
+                unknown_categories[category_name] = []
+            unknown_categories[category_name].append(row_num)
+
+    return unknown_categories
+
+
+def _show_all_categories(config: Config) -> None:
+    """Display all categories grouped by type.
+
+    Args:
+        config: Config with category definitions.
+    """
+    from financial_consolidator.models.category import CategoryType
+
+    for cat_type in CategoryType:
+        cats = [c for c in config.categories.values() if c.category_type == cat_type]
+        if cats:
+            console.print(f"\n[bold]{cat_type.value.upper()}[/bold]")
+            sorted_cats = sorted(cats, key=lambda c: c.display_order)
+            for cat in sorted_cats:
+                parent_note = f" [dim](sub of {cat.parent_id})[/dim]" if cat.parent_id else ""
+                console.print(f"  - {cat.name}{parent_note}")
+
+
+def create_category_interactive(
+    suggested_name: str,
+    config: Config,
+) -> str | None:
+    """Interactively create a new category.
+
+    Args:
+        suggested_name: Suggested name for the new category.
+        config: Config to add the category to.
+
+    Returns:
+        New category ID if created, None if cancelled.
+    """
+    from financial_consolidator.models.category import Category, CategoryType
+
+    console.print("\n[bold]Create New Category[/bold]")
+
+    # Get name
+    name_input = console.input(f"Category name [{suggested_name}]: ").strip()
+    name = name_input if name_input else suggested_name
+
+    # Get type
+    console.print("\nCategory type:")
+    console.print("  [1] expense (default)")
+    console.print("  [2] income")
+    console.print("  [3] transfer")
+    type_choice = console.input("Type [1]: ").strip() or "1"
+
+    type_map = {"1": CategoryType.EXPENSE, "2": CategoryType.INCOME, "3": CategoryType.TRANSFER}
+    cat_type = type_map.get(type_choice, CategoryType.EXPENSE)
+
+    # Generate ID from name
+    cat_id = name.lower().replace(" ", "_").replace("&", "and").replace("/", "_")
+    cat_id = "".join(c for c in cat_id if c.isalnum() or c == "_")
+
+    # Ensure unique
+    base_id = cat_id
+    counter = 1
+    while cat_id in config.categories:
+        cat_id = f"{base_id}_{counter}"
+        counter += 1
+
+    # Find max display_order for this type
+    max_order = max(
+        (c.display_order for c in config.categories.values() if c.category_type == cat_type),
+        default=0
+    )
+
+    # Create category
+    new_cat = Category(
+        id=cat_id,
+        name=name,
+        category_type=cat_type,
+        display_order=max_order + 1,
+    )
+
+    config.categories[cat_id] = new_cat
+    console.print(f"[green]Created category: {name} (id: {cat_id})[/green]")
+
+    return cat_id
+
+
+def resolve_unknown_category(
+    unknown_name: str,
+    row_count: int,
+    config: Config,
+) -> str | None:
+    """Prompt user to resolve an unknown category.
+
+    Args:
+        unknown_name: The unknown category name.
+        row_count: Number of rows with this unknown category.
+        config: Config with category definitions.
+
+    Returns:
+        Category ID if resolved, None if user skips.
+    """
+    from difflib import get_close_matches
+
+    console.print(f"\n[yellow]Unknown category:[/yellow] \"{unknown_name}\"")
+    console.print(f"[dim]Affects {row_count} row(s)[/dim]\n")
+
+    # Get fuzzy matches
+    all_names = {c.name: cid for cid, c in config.categories.items()}
+    matches = get_close_matches(unknown_name, list(all_names.keys()), n=5, cutoff=0.4)
+
+    if matches:
+        console.print("[bold]Suggested matches:[/bold]")
+        for i, name in enumerate(matches, 1):
+            cat = config.categories[all_names[name]]
+            console.print(f"  [{i}] {name} ({cat.category_type.value})")
+
+    console.print("\n[bold]Other options:[/bold]")
+    console.print("  [A] Show all categories")
+    console.print(f"  [C] Create \"{unknown_name}\" as new category")
+    console.print("  [S] Skip (don't import corrections for this category)")
+
+    while True:
+        choice = console.input("\nEnter choice: ").strip().upper()
+
+        if choice.isdigit() and matches and 1 <= int(choice) <= len(matches):
+            selected_name = matches[int(choice) - 1]
+            category_id = all_names[selected_name]
+            console.print(f"[green]Using existing category: {selected_name}[/green]")
+            return category_id
+        elif choice == "A":
+            _show_all_categories(config)
+            console.print("\n[dim]Enter a number to select a match, or C/S[/dim]")
+            continue
+        elif choice == "C":
+            return create_category_interactive(unknown_name, config)
+        elif choice == "S":
+            console.print(f"[dim]Skipping corrections for '{unknown_name}'[/dim]")
+            return None
+        else:
+            console.print("[red]Invalid choice. Enter a number, A, C, or S.[/red]")
+
+
 def import_corrections_command(
     import_path: Path,
     corrections_path: Path,
     config_dir: Path,
     categories_path: Path | None,
+    interactive: bool = True,
 ) -> int:
     """Import corrections from a reviewed output file.
 
@@ -1007,6 +1171,7 @@ def import_corrections_command(
         corrections_path: Path to corrections.yaml.
         config_dir: Path to config directory.
         categories_path: Optional path to categories.yaml.
+        interactive: If True, prompt to resolve unknown categories.
 
     Returns:
         Exit code (0 for success, 1 for errors).
@@ -1022,6 +1187,9 @@ def import_corrections_command(
         console.print(f"[red]Error: File not found: {import_path}[/red]")
         return 1
 
+    # Determine actual categories path for saving
+    actual_categories_path = categories_path or (config_dir / "categories.yaml")
+
     # Load config to get category definitions
     try:
         config = load_config(
@@ -1032,7 +1200,10 @@ def import_corrections_command(
         console.print(f"[red]Error loading config: {e}[/red]")
         return 1
 
-    # Import corrections
+    # Track if we created new categories (need to save)
+    categories_modified = False
+
+    # First pass: Import corrections
     try:
         result = import_corrections_from_file(import_path, config)
     except CorrectionImportError as e:
@@ -1050,6 +1221,45 @@ def import_corrections_command(
     except OSError as e:
         console.print(f"[red]Error reading file: {e}[/red]")
         return 1
+
+    # Check for unknown categories
+    unknown_categories = _extract_unknown_categories(result.skipped_reasons)
+
+    if unknown_categories and interactive:
+        console.print(
+            f"\n[yellow]Found {len(unknown_categories)} unknown category name(s)[/yellow]"
+        )
+
+        # Track resolutions: unknown_name -> resolved category_id (or None to skip)
+        resolutions: dict[str, str | None] = {}
+
+        for unknown_name, row_numbers in unknown_categories.items():
+            category_id = resolve_unknown_category(
+                unknown_name, len(row_numbers), config
+            )
+            resolutions[unknown_name] = category_id
+
+            # Track if we created a new category
+            if category_id and category_id not in [
+                config.get_category_id_by_name(name)
+                for name in unknown_categories.keys()
+                if name != unknown_name
+            ]:
+                # Check if this was a new category (id matches expected generated id)
+                generated_id = unknown_name.lower().replace(" ", "_").replace("&", "and").replace("/", "_")
+                generated_id = "".join(c for c in generated_id if c.isalnum() or c == "_")
+                if category_id.startswith(generated_id):
+                    categories_modified = True
+
+        # Re-import if any categories were resolved
+        resolved_count = sum(1 for v in resolutions.values() if v is not None)
+        if resolved_count > 0:
+            console.print(f"\n[dim]Re-importing with {resolved_count} resolved categories...[/dim]")
+            try:
+                result = import_corrections_from_file(import_path, config)
+            except CorrectionImportError as e:
+                console.print(f"[red]Error re-importing corrections: {e}[/red]")
+                return 1
 
     # Load existing corrections
     try:
@@ -1070,15 +1280,35 @@ def import_corrections_command(
         console.print(f"[red]Error saving corrections: {e}[/red]")
         return 1
 
+    # Save categories if we created new ones
+    if categories_modified:
+        try:
+            save_categories(actual_categories_path, config)
+            console.print(f"[dim]Updated categories saved to: {actual_categories_path}[/dim]")
+        except OSError as e:
+            console.print(f"[yellow]Warning: Could not save new categories: {e}[/yellow]")
+
     # Display results
-    console.print(f"[green]Imported {new_count} corrections[/green]")
+    console.print(f"\n[green]Imported {new_count} corrections[/green]")
     if override_count > 0:
         console.print(f"[dim]  ({override_count} overrode existing corrections)[/dim]")
     console.print(f"[green]Total corrections: {len(merged)}[/green]")
 
-    if result.skipped_count > 0:
+    # Show remaining skipped rows (excluding resolved unknown categories)
+    remaining_skipped = [
+        r for r in result.skipped_reasons
+        if not any(f"Unknown category '{name}'" in r for name in unknown_categories.keys())
+    ]
+    if remaining_skipped:
+        console.print(f"\n[yellow]Skipped {len(remaining_skipped)} rows:[/yellow]")
+        for reason in remaining_skipped[:10]:  # Show first 10
+            console.print(f"[dim]  - {reason}[/dim]")
+        if len(remaining_skipped) > 10:
+            console.print(f"[dim]  ... and {len(remaining_skipped) - 10} more[/dim]")
+    elif result.skipped_count > 0 and not unknown_categories:
+        # Show original skipped if no unknown categories were involved
         console.print(f"\n[yellow]Skipped {result.skipped_count} rows:[/yellow]")
-        for reason in result.skipped_reasons[:10]:  # Show first 10
+        for reason in result.skipped_reasons[:10]:
             console.print(f"[dim]  - {reason}[/dim]")
         if len(result.skipped_reasons) > 10:
             console.print(f"[dim]  ... and {len(result.skipped_reasons) - 10} more[/dim]")
@@ -1439,6 +1669,7 @@ def main() -> int:
             corrections_path,
             args.config_dir,
             args.categories,
+            interactive=not args.no_interactive,
         )
 
     # Handle balance management commands (no input-dir required)
